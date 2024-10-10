@@ -23,23 +23,30 @@ void add_source(int M, int N, int O, float *x, float *s, float dt) {
 void set_bnd(int M, int N, int O, int b, float *x) {
   int i, j;
 
+  int loopMN = b == 3 ? -1 : 1;
+
   // Set boundary on faces
   for (i = 1; i <= M; i++) {
     for (j = 1; j <= N; j++) {
-      x[IX(i, j, 0)] = b == 3 ? -x[IX(i, j, 1)] : x[IX(i, j, 1)];
-      x[IX(i, j, O + 1)] = b == 3 ? -x[IX(i, j, O)] : x[IX(i, j, O)];
+      x[IX(i, j, 0)] = x[IX(i, j, 1)] * loopMN;
+      x[IX(i, j, O + 1)] = x[IX(i, j, O)] * loopMN;
     }
   }
+
+  int loopNO = b == 1 ? -1 : 1;
+
   for (i = 1; i <= N; i++) {
     for (j = 1; j <= O; j++) {
-      x[IX(0, i, j)] = b == 1 ? -x[IX(1, i, j)] : x[IX(1, i, j)];
-      x[IX(M + 1, i, j)] = b == 1 ? -x[IX(M, i, j)] : x[IX(M, i, j)];
+      x[IX(0, i, j)] = x[IX(1, i, j)] * loopNO;
+      x[IX(M + 1, i, j)] = x[IX(M, i, j)] * loopNO;
     }
   }
+
+  int loopMO = b == 2 ? -1 : 1;
   for (i = 1; i <= M; i++) {
     for (j = 1; j <= O; j++) {
-      x[IX(i, 0, j)] = b == 2 ? -x[IX(i, 1, j)] : x[IX(i, 1, j)];
-      x[IX(i, N + 1, j)] = b == 2 ? -x[IX(i, N, j)] : x[IX(i, N, j)];
+      x[IX(i, 0, j)] = x[IX(i, 1, j)] * loopMO;
+      x[IX(i, N + 1, j)] = x[IX(i, N, j)] * loopMO;
     }
   }
 
@@ -56,6 +63,9 @@ void set_bnd(int M, int N, int O, int b, float *x) {
 // Linear solve for implicit methods (diffusion)
 void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a,
                float c) {
+
+  float cRecip = 1.0 / c;
+
   for (int l = 0; l < LINEARSOLVERTIMES; l++) {
     for (int i = 1; i <= M; i++) {
       for (int j = 1; j <= N; j++) {
@@ -63,8 +73,7 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a,
           x[IX(i, j, k)] = (x0[IX(i, j, k)] +
                             a * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
                                  x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
-                                 x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)])) /
-                           c;
+                                 x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)])) * cRecip;
         }
       }
     }
@@ -129,14 +138,16 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
 // divergence-free)
 void project(int M, int N, int O, float *u, float *v, float *w, float *p,
              float *div) {
+
+  float h = 1.0f / MAX(M, MAX(N, O));
+
   for (int i = 1; i <= M; i++) {
     for (int j = 1; j <= N; j++) {
       for (int k = 1; k <= O; k++) {
         div[IX(i, j, k)] =
             -0.5f *
             (u[IX(i + 1, j, k)] - u[IX(i - 1, j, k)] + v[IX(i, j + 1, k)] -
-             v[IX(i, j - 1, k)] + w[IX(i, j, k + 1)] - w[IX(i, j, k - 1)]) /
-            MAX(M, MAX(N, O));
+             v[IX(i, j - 1, k)] + w[IX(i, j, k + 1)] - w[IX(i, j, k - 1)]) * h;
         p[IX(i, j, k)] = 0;
       }
     }
