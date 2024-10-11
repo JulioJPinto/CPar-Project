@@ -62,8 +62,6 @@ void set_bnd(int M, int N, int O, int b, float *x) {
 // Linear solve for implicit methods (diffusion)
 void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c) {
 
-  float cRecip = 1.0 / c;
-
   for (int l = 0; l < LINEARSOLVERTIMES; l++) {
     for (int k = 1; k <= O; k++) {
       for (int j = 1; j <= N; j++) {
@@ -106,7 +104,7 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
           int idx3_kp1 = IX(i + 3, j, k + 1);
 
           // Cache values for x0 at the current indices
-          float x0_0 = x0[idx0];
+          float x0_0 = x0[idx0];  
           float x0_1 = x0[idx1];
           float x0_2 = x0[idx2];
           float x0_3 = x0[idx3];
@@ -114,19 +112,19 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
           // Perform the calculations for unrolled iterations
           x[idx0] = (x0_0 + a * (x[idx0_im1] + x[idx0_ip1] +
                                  x[idx0_jm1] + x[idx0_jp1] +
-                                 x[idx0_km1] + x[idx0_kp1])) * cRecip;
+                                 x[idx0_km1] + x[idx0_kp1])) / c;
 
           x[idx1] = (x0_1 + a * (x[idx1_im1] + x[idx1_ip1] +
                                  x[idx1_jm1] + x[idx1_jp1] +
-                                 x[idx1_km1] + x[idx1_kp1])) * cRecip;
+                                 x[idx1_km1] + x[idx1_kp1])) / c;
 
           x[idx2] = (x0_2 + a * (x[idx2_im1] + x[idx2_ip1] +
                                  x[idx2_jm1] + x[idx2_jp1] +
-                                 x[idx2_km1] + x[idx2_kp1])) * cRecip;
+                                 x[idx2_km1] + x[idx2_kp1])) / c;
 
           x[idx3] = (x0_3 + a * (x[idx3_im1] + x[idx3_ip1] +
                                  x[idx3_jm1] + x[idx3_jp1] +
-                                 x[idx3_km1] + x[idx3_kp1])) * cRecip;
+                                 x[idx3_km1] + x[idx3_kp1])) / c;
         }
 
         // Handle any remaining iterations if M is not divisible by 4
@@ -135,7 +133,7 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
           x[idx] = (x0[idx] +
                     a * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
                          x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
-                         x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)])) * cRecip;
+                         x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)])) / c;
         }
       }
     }

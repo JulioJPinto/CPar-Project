@@ -17,6 +17,7 @@ rsync -avz -e "sshpass -p '$password' ssh" ./ "$username"@s7edu.di.uminho.pt:~/$
 sshpass -p "$password" ssh "$username"@s7edu.di.uminho.pt << EOF
 cd ~/$destination_folder/
 make clean
+module load gcc/11.2.0
 make
-srun --partition=cpar perf stat -r 3 -M cpi,instructions -e branch-misses,L1-dcache-load-misses,cycles,duration_time,mem-loads,mem-stores make run
+srun --partition=cpar perf stat -r 3 -M cpi,instructions -e branch-misses,L1-dcache-load-misses,cycles,duration_time,mem-loads,mem-stores ./fluid_sim
 EOF

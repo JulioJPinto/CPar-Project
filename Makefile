@@ -5,7 +5,7 @@ CFLAGS = -O3 -march=native -ftree-vectorize -mavx
 all:
 	$(CPP) $(CFLAGS) $(SRCS) -o fluid_sim
 
-run: all
+run: 
 	./fluid_sim
 
 clean:
