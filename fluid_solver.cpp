@@ -60,25 +60,89 @@ void set_bnd(int M, int N, int O, int b, float *x) {
 }
 
 // Linear solve for implicit methods (diffusion)
-void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a,
-               float c) {
+void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c) {
 
   float cRecip = 1.0 / c;
 
   for (int l = 0; l < LINEARSOLVERTIMES; l++) {
-    for (int i = 1; i <= M; i++) {
+    for (int k = 1; k <= O; k++) {
       for (int j = 1; j <= N; j++) {
-        for (int k = 1; k <= O; k++) {
-          x[IX(i, j, k)] = (x0[IX(i, j, k)] +
-                            a * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
-                                 x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
-                                 x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)])) * cRecip;
+
+        // Manually unroll the inner loop over `i`
+        int i = 1;
+        for (; i <= M - 3; i += 4) {
+          int idx0 = IX(i, j, k);
+          int idx1 = IX(i + 1, j, k);
+          int idx2 = IX(i + 2, j, k);
+          int idx3 = IX(i + 3, j, k);
+
+          // Cache neighbor indices for idx0, idx1, idx2, and idx3
+          int idx0_im1 = IX(i - 1, j, k);
+          int idx0_ip1 = IX(i + 1, j, k);
+          int idx0_jm1 = IX(i, j - 1, k);
+          int idx0_jp1 = IX(i, j + 1, k);
+          int idx0_km1 = IX(i, j, k - 1);
+          int idx0_kp1 = IX(i, j, k + 1);
+
+          int idx1_im1 = IX(i, j, k);  // For idx1: i-1 is idx0
+          int idx1_ip1 = IX(i + 2, j, k);
+          int idx1_jm1 = IX(i + 1, j - 1, k);
+          int idx1_jp1 = IX(i + 1, j + 1, k);
+          int idx1_km1 = IX(i + 1, j, k - 1);
+          int idx1_kp1 = IX(i + 1, j, k + 1);
+
+          int idx2_im1 = IX(i + 1, j, k);  // For idx2: i-1 is idx1
+          int idx2_ip1 = IX(i + 3, j, k);
+          int idx2_jm1 = IX(i + 2, j - 1, k);
+          int idx2_jp1 = IX(i + 2, j + 1, k);
+          int idx2_km1 = IX(i + 2, j, k - 1);
+          int idx2_kp1 = IX(i + 2, j, k + 1);
+
+          int idx3_im1 = IX(i + 2, j, k);  // For idx3: i-1 is idx2
+          int idx3_ip1 = IX(i + 4, j, k);  // Only valid if i + 3 < M
+          int idx3_jm1 = IX(i + 3, j - 1, k);
+          int idx3_jp1 = IX(i + 3, j + 1, k);
+          int idx3_km1 = IX(i + 3, j, k - 1);
+          int idx3_kp1 = IX(i + 3, j, k + 1);
+
+          // Cache values for x0 at the current indices
+          float x0_0 = x0[idx0];
+          float x0_1 = x0[idx1];
+          float x0_2 = x0[idx2];
+          float x0_3 = x0[idx3];
+
+          // Perform the calculations for unrolled iterations
+          x[idx0] = (x0_0 + a * (x[idx0_im1] + x[idx0_ip1] +
+                                 x[idx0_jm1] + x[idx0_jp1] +
+                                 x[idx0_km1] + x[idx0_kp1])) * cRecip;
+
+          x[idx1] = (x0_1 + a * (x[idx1_im1] + x[idx1_ip1] +
+                                 x[idx1_jm1] + x[idx1_jp1] +
+                                 x[idx1_km1] + x[idx1_kp1])) * cRecip;
+
+          x[idx2] = (x0_2 + a * (x[idx2_im1] + x[idx2_ip1] +
+                                 x[idx2_jm1] + x[idx2_jp1] +
+                                 x[idx2_km1] + x[idx2_kp1])) * cRecip;
+
+          x[idx3] = (x0_3 + a * (x[idx3_im1] + x[idx3_ip1] +
+                                 x[idx3_jm1] + x[idx3_jp1] +
+                                 x[idx3_km1] + x[idx3_kp1])) * cRecip;
+        }
+
+        // Handle any remaining iterations if M is not divisible by 4
+        for (; i <= M; i++) {
+          int idx = IX(i, j, k);
+          x[idx] = (x0[idx] +
+                    a * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
+                         x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
+                         x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)])) * cRecip;
         }
       }
     }
     set_bnd(M, N, O, b, x);
   }
 }
+
 
 // Diffusion step (uses implicit method)
 void diffuse(int M, int N, int O, int b, float *x, float *x0, float diff,
