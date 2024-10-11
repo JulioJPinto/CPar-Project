@@ -3,3 +3,5 @@ fluid_sim
 main.gprof
 output.*
 prof_md
+gmon.*
+search.sh

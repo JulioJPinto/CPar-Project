@@ -24,7 +24,6 @@ void set_bnd(int M, int N, int O, int b, float *x) {
   int i, j;
 
   int loopMN = b == 3 ? -1 : 1;
-
   // Set boundary on faces
   for (i = 1; i <= M; i++) {
     for (j = 1; j <= N; j++) {
@@ -139,7 +138,7 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
 void project(int M, int N, int O, float *u, float *v, float *w, float *p,
              float *div) {
 
-  float h = 1.0f / MAX(M, MAX(N, O));
+  float max = MAX(M, MAX(N, O));
 
   for (int i = 1; i <= M; i++) {
     for (int j = 1; j <= N; j++) {
@@ -147,7 +146,7 @@ void project(int M, int N, int O, float *u, float *v, float *w, float *p,
         div[IX(i, j, k)] =
             -0.5f *
             (u[IX(i + 1, j, k)] - u[IX(i - 1, j, k)] + v[IX(i, j + 1, k)] -
-             v[IX(i, j - 1, k)] + w[IX(i, j, k + 1)] - w[IX(i, j, k - 1)]) * h;
+             v[IX(i, j - 1, k)] + w[IX(i, j, k + 1)] - w[IX(i, j, k - 1)]) / max;
         p[IX(i, j, k)] = 0;
       }
     }
