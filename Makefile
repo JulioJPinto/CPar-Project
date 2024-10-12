@@ -1,9 +1,12 @@
-CPP = g++ -Wall -pg
+CPP = g++ -Wall
 SRCS = main.cpp fluid_solver.cpp EventManager.cpp
-CFLAGS = -O3 -march=native -ftree-vectorize -mavx -Wall
+CFLAGS = -O3 -march=native -ftree-vectorize -mavx 
 
 all:
 	$(CPP) $(CFLAGS) $(SRCS) -o fluid_sim
+
+run: 
+	./fluid_sim
 
 clean:
 	@echo Cleaning up...
