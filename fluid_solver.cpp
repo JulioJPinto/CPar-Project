@@ -2,10 +2,9 @@
 #include <cmath>
 #include <algorithm> // For std::max
 
-#define IX(i, j, k) ((i) + (M + 2) * (j) + (M + 2) * (N + 2) * (k))
 #define SWAP(x0, x)                                                            \
   {                                                                            \
-    float *tmp = x0;                                                           \
+    float ***tmp = x0;                                                           \
     x0 = x;                                                                    \
     x = tmp;                                                                   \
   }
@@ -16,23 +15,27 @@
 #define BLOCK_SIZE 4
 
 // Add sources (density or velocity)
-void add_source(int M, int N, int O, float *x, float *s, float dt) {
+void add_source(int M, int N, int O, float ***x, float ***s, float dt) {
   int size = (M + 2) * (N + 2) * (O + 2);
-  for (int i = 0; i < size; i++) {
-    x[i] += dt * s[i];
+  for (int i = 0; i < M + 2; i++) {
+    for (int j = 0; j < N + 2; j++) {
+      for (int k = 0; k < O + 2; k++) {
+        x[i][j][k] += dt * s[i][j][k];
+      }
+    }
   }
 }
 
 // Set boundary conditions
-void set_bnd(int M, int N, int O, int b, float *x) {
+void set_bnd(int M, int N, int O, int b, float ***x) {
   int i, j;
 
   int loopMN = b == 3 ? -1 : 1;
   // Set boundary on faces
   for (i = 1; i <= M; i++) {
     for (j = 1; j <= N; j++) {
-      x[IX(i, j, 0)] = x[IX(i, j, 1)] * loopMN;
-      x[IX(i, j, O + 1)] = x[IX(i, j, O)] * loopMN;
+      x[i][ j][ 0] = x[i][ j][ 1] * loopMN;
+      x[i][ j][ O + 1] = x[i][ j][ O] * loopMN;
     }
   }
 
@@ -40,32 +43,32 @@ void set_bnd(int M, int N, int O, int b, float *x) {
 
   for (i = 1; i <= N; i++) {
     for (j = 1; j <= O; j++) {
-      x[IX(0, i, j)] = x[IX(1, i, j)] * loopNO;
-      x[IX(M + 1, i, j)] = x[IX(M, i, j)] * loopNO;
+      x[0][ i][ j] = x[1][ i][ j] * loopNO;
+      x[M + 1][ i][ j] = x[M][ i][ j] * loopNO;
     }
   }
 
   int loopMO = b == 2 ? -1 : 1;
   for (i = 1; i <= M; i++) {
     for (j = 1; j <= O; j++) {
-      x[IX(i, 0, j)] = x[IX(i, 1, j)] * loopMO;
-      x[IX(i, N + 1, j)] = x[IX(i, N, j)] * loopMO;
+      x[i][ 0][ j] = x[i][ 1][ j] * loopMO;
+      x[i][ N + 1][ j] = x[i][ N][ j] * loopMO;
     }
   }
 
   // Set corners
-  x[IX(0, 0, 0)] = 0.33f * (x[IX(1, 0, 0)] + x[IX(0, 1, 0)] + x[IX(0, 0, 1)]);
-  x[IX(M + 1, 0, 0)] =
-      0.33f * (x[IX(M, 0, 0)] + x[IX(M + 1, 1, 0)] + x[IX(M + 1, 0, 1)]);
-  x[IX(0, N + 1, 0)] =
-      0.33f * (x[IX(1, N + 1, 0)] + x[IX(0, N, 0)] + x[IX(0, N + 1, 1)]);
-  x[IX(M + 1, N + 1, 0)] = 0.33f * (x[IX(M, N + 1, 0)] + x[IX(M + 1, N, 0)] +
-                                    x[IX(M + 1, N + 1, 1)]);
+  x[0][ 0][ 0] = 0.33f * (x[1][ 0][ 0] + x[0][ 1][ 0] + x[0][ 0][ 1]);
+  x[M + 1][ 0][ 0] =
+      0.33f * (x[M][ 0][ 0] + x[M + 1][ 1][ 0] + x[M + 1][ 0][ 1]);
+  x[0][ N + 1][ 0] =
+      0.33f * (x[1][ N + 1][ 0] + x[0][ N][ 0] + x[0][ N + 1][ 1]);
+  x[M + 1][ N + 1][ 0] = 0.33f * (x[M][ N + 1][ 0] + x[M + 1][ N][ 0] +
+                                    x[M + 1][ N + 1][ 1]);
 }
 
 // Linear solve for implicit methods (diffusion)
 // Apply blocking (tiling) for cache optimization
-void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c) {
+void lin_solve(int M, int N, int O, int b, float ***x, float ***x0, float a, float c) {
 
   float invA = a / c;
   float invC = 1 / c;
@@ -79,11 +82,11 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
           for (int k = kk; k < std::min(kk + BLOCK_SIZE, O + 1); k++) {
             for (int j = jj; j < std::min(jj + BLOCK_SIZE, N + 1); j++) {
               for (int i = ii; i < std::min(ii + BLOCK_SIZE, M + 1); i++) {
-                int idx = IX(i, j, k);
-                x[idx] = (x0[idx] * invC +
-                          invA * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
-                               x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
-                               x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
+
+                x[i][ j][ k] = (x0[i][ j][ k] * invC +
+                          invA * (x[i - 1][ j][ k] + x[i + 1][ j][ k] +
+                               x[i][ j - 1][ k] + x[i][ j + 1][ k] +
+                               x[i][ j][ k - 1] + x[i][ j][ k + 1]));
               }
             }
           }
@@ -95,23 +98,23 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
 }
 
 // Diffusion step (uses implicit method)
-void diffuse(int M, int N, int O, int b, float *x, float *x0, float diff, float dt) {
+void diffuse(int M, int N, int O, int b, float ***x, float ***x0, float diff, float dt) {
   int max = MAX(MAX(M, N), O);
   float a = dt * diff * max * max;
   lin_solve(M, N, O, b, x, x0, a, 1 + 6 * a);
 }
 
 // Advection step (uses velocity field to move quantities)
-void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
-            float *w, float dt) {
+void advect(int M, int N, int O, int b, float ***d, float ***d0, float ***u, float ***v,
+            float ***w, float dt) {
   float dtX = dt * M, dtY = dt * N, dtZ = dt * O;
 
   for (int i = 1; i <= M; i++) {
     for (int j = 1; j <= N; j++) {
       for (int k = 1; k <= O; k++) {
-        float x = i - dtX * u[IX(i, j, k)];
-        float y = j - dtY * v[IX(i, j, k)];
-        float z = k - dtZ * w[IX(i, j, k)];
+        float x = i - dtX * u[i][ j][ k];
+        float y = j - dtY * v[i][ j][ k];
+        float z = k - dtZ * w[i][ j][ k];
 
         // Clamp to grid boundaries
         x = std::max(0.5f, std::min((float)M + 0.5f, x));
@@ -126,11 +129,11 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
         float t1 = y - j0, t0 = 1 - t1;
         float u1 = z - k0, u0 = 1 - u1;
 
-        d[IX(i, j, k)] =
-            s0 * (t0 * (u0 * d0[IX(i0, j0, k0)] + u1 * d0[IX(i0, j0, k1)]) +
-                  t1 * (u0 * d0[IX(i0, j1, k0)] + u1 * d0[IX(i0, j1, k1)])) +
-            s1 * (t0 * (u0 * d0[IX(i1, j0, k0)] + u1 * d0[IX(i1, j0, k1)]) +
-                  t1 * (u0 * d0[IX(i1, j1, k0)] + u1 * d0[IX(i1, j1, k1)]));
+        d[i][ j][ k] =
+            s0 * (t0 * (u0 * d0[i0][ j0][ k0] + u1 * d0[i0][ j0][ k1]) +
+                  t1 * (u0 * d0[i0][ j1][ k0] + u1 * d0[i0][ j1][ k1])) +
+            s1 * (t0 * (u0 * d0[i1][ j0][ k0] + u1 * d0[i1][ j0][ k1]) +
+                  t1 * (u0 * d0[i1][ j1][ k0] + u1 * d0[i1][ j1][ k1]));
       }
     }
   }
@@ -140,19 +143,19 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
 
 // Projection step to ensure incompressibility (make the velocity field
 // divergence-free)
-void project(int M, int N, int O, float *u, float *v, float *w, float *p,
-             float *div) {
+void project(int M, int N, int O, float ***u, float ***v, float ***w, float ***p,
+             float ***div) {
 
   float max = 1.0f / MAX(M, MAX(N, O));
 
   for (int i = 1; i <= M; i++) {
     for (int j = 1; j <= N; j++) {
       for (int k = 1; k <= O; k++) {
-        div[IX(i, j, k)] =
+        div[i][ j][ k] =
             -0.5f *
-            (u[IX(i + 1, j, k)] - u[IX(i - 1, j, k)] + v[IX(i, j + 1, k)] -
-             v[IX(i, j - 1, k)] + w[IX(i, j, k + 1)] - w[IX(i, j, k - 1)]) * max;
-        p[IX(i, j, k)] = 0;
+            (u[i + 1][ j][ k] - u[i - 1][ j][ k] + v[i][ j + 1][ k] -
+             v[i][ j - 1][ k] + w[i][ j][ k + 1] - w[i][ j][ k - 1]) * max;
+        p[i][ j][ k] = 0;
       }
     }
   }
@@ -164,9 +167,9 @@ void project(int M, int N, int O, float *u, float *v, float *w, float *p,
   for (int i = 1; i <= M; i++) {
     for (int j = 1; j <= N; j++) {
       for (int k = 1; k <= O; k++) {
-        u[IX(i, j, k)] -= 0.5f * (p[IX(i + 1, j, k)] - p[IX(i - 1, j, k)]);
-        v[IX(i, j, k)] -= 0.5f * (p[IX(i, j + 1, k)] - p[IX(i, j - 1, k)]);
-        w[IX(i, j, k)] -= 0.5f * (p[IX(i, j, k + 1)] - p[IX(i, j, k - 1)]);
+        u[i][ j][ k] -= 0.5f * (p[i + 1][ j][ k] - p[i - 1][ j][ k]);
+        v[i][ j][ k] -= 0.5f * (p[i][ j + 1][ k] - p[i][ j - 1][ k]);
+        w[i][ j][ k] -= 0.5f * (p[i][ j][ k + 1] - p[i][ j][ k - 1]);
       }
     }
   }
@@ -176,8 +179,8 @@ void project(int M, int N, int O, float *u, float *v, float *w, float *p,
 }
 
 // Step function for density
-void dens_step(int M, int N, int O, float *x, float *x0, float *u, float *v,
-               float *w, float diff, float dt) {
+void dens_step(int M, int N, int O, float ***x, float ***x0, float ***u, float ***v,
+               float ***w, float diff, float dt) {
   add_source(M, N, O, x, x0, dt);
   SWAP(x0, x);
   diffuse(M, N, O, 0, x, x0, diff, dt);
@@ -186,8 +189,8 @@ void dens_step(int M, int N, int O, float *x, float *x0, float *u, float *v,
 }
 
 // Step function for velocity
-void vel_step(int M, int N, int O, float *u, float *v, float *w, float *u0,
-              float *v0, float *w0, float visc, float dt) {
+void vel_step(int M, int N, int O, float ***u, float ***v, float ***w, float ***u0,
+              float ***v0, float ***w0, float visc, float dt) {
   add_source(M, N, O, u, u0, dt);
   add_source(M, N, O, v, v0, dt);
   add_source(M, N, O, w, w0, dt);

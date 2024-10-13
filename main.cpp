@@ -5,8 +5,6 @@
 
 #define SIZE 42
 
-#define IX(i, j, k) ((i) + (M + 2) * (j) + (M + 2) * (N + 2) * (k))
-
 // Globals for the grid size
 static int M = SIZE;
 static int N = SIZE;
@@ -16,20 +14,41 @@ static float diff = 0.0001f; // Diffusion constant
 static float visc = 0.0001f; // Viscosity constant
 
 // Fluid simulation arrays
-static float *u, *v, *w, *u_prev, *v_prev, *w_prev;
-static float *dens, *dens_prev;
+static float ***u, ***v, ***w, ***u_prev, ***v_prev, ***w_prev;
+static float ***dens, ***dens_prev;
+
+float*** malloc3d(int x, int y, int z) {
+  float ***array = new float**[x];
+  for (int i = 0; i < x; i++) {
+    array[i] = new float*[y];
+    for (int j = 0; j < y; j++) {
+      array[i][j] = new float[z];
+    }
+  }
+  return array;
+}
+
+void dealloc3d(float ***array, int x, int y) {
+  for (int i = 0; i < x; i++) {
+    for (int j = 0; j < y; j++) {
+      delete[] array[i][j];
+    }
+    delete[] array[i];
+  }
+  delete[] array;
+}
 
 // Function to allocate simulation data
 int allocate_data() {
-  int size = (M + 2) * (N + 2) * (O + 2);
-  u = new float[size];
-  v = new float[size];
-  w = new float[size];
-  u_prev = new float[size];
-  v_prev = new float[size];
-  w_prev = new float[size];
-  dens = new float[size];
-  dens_prev = new float[size];
+
+  u = malloc3d(M + 2, N + 2, O + 2);
+  v = malloc3d(M + 2, N + 2, O + 2);
+  w = malloc3d(M + 2, N + 2, O + 2);
+  u_prev = malloc3d(M + 2, N + 2, O + 2);
+  v_prev = malloc3d(M + 2, N + 2, O + 2);
+  w_prev = malloc3d(M + 2, N + 2, O + 2);
+  dens = malloc3d(M + 2, N + 2, O + 2);
+  dens_prev = malloc3d(M + 2, N + 2, O + 2);
 
   if (!u || !v || !w || !u_prev || !v_prev || !w_prev || !dens || !dens_prev) {
     std::cerr << "Cannot allocate memory" << std::endl;
@@ -40,23 +59,27 @@ int allocate_data() {
 
 // Function to clear the data (set all to zero)
 void clear_data() {
-  int size = (M + 2) * (N + 2) * (O + 2);
-  for (int i = 0; i < size; i++) {
-    u[i] = v[i] = w[i] = u_prev[i] = v_prev[i] = w_prev[i] = dens[i] =
-        dens_prev[i] = 0.0f;
+  for (int i = 0; i < M + 2; i++) {
+    for (int j = 0; j < N + 2; j++) {
+      for (int k = 0; k < O + 2; k++) {
+        u[i][j][k] = v[i][j][k] = w[i][j][k] = u_prev[i][j][k] =
+            v_prev[i][j][k] = w_prev[i][j][k] = dens[i][j][k] =
+                dens_prev[i][j][k] = 0.0f;
+      }
+    }
   }
 }
 
 // Free allocated memory
 void free_data() {
-  delete[] u;
-  delete[] v;
-  delete[] w;
-  delete[] u_prev;
-  delete[] v_prev;
-  delete[] w_prev;
-  delete[] dens;
-  delete[] dens_prev;
+  dealloc3d(u, M + 2, N + 2);
+  dealloc3d(v, M + 2, N + 2);
+  dealloc3d(w, M + 2, N + 2);
+  dealloc3d(u_prev, M + 2, N + 2);
+  dealloc3d(v_prev, M + 2, N + 2);
+  dealloc3d(w_prev, M + 2, N + 2);
+  dealloc3d(dens, M + 2, N + 2);
+  dealloc3d(dens_prev, M + 2, N + 2);
 }
 
 // Apply events (source or force) for the current timestep
@@ -65,13 +88,13 @@ void apply_events(const std::vector<Event> &events) {
     if (event.type == ADD_SOURCE) {
       // Apply density source at the center of the grid
       int i = M / 2, j = N / 2, k = O / 2;
-      dens[IX(i, j, k)] = event.density;
+      dens[i][ j][ k] = event.density;
     } else if (event.type == APPLY_FORCE) {
       // Apply forces based on the event's vector (fx, fy, fz)
       int i = M / 2, j = N / 2, k = O / 2;
-      u[IX(i, j, k)] = event.force.x;
-      v[IX(i, j, k)] = event.force.y;
-      w[IX(i, j, k)] = event.force.z;
+      u[i][ j][ k] = event.force.x;
+      v[i][ j][ k] = event.force.y;
+      w[i][ j][ k] = event.force.z;
     }
   }
 }
@@ -80,9 +103,11 @@ void apply_events(const std::vector<Event> &events) {
 float sum_density() {
   float total_density = 0.0f;
   int size = (M + 2) * (N + 2) * (O + 2);
-  for (int i = 0; i < size; i++) {
-    total_density += dens[i];
-  }
+  for (int i = 0; i < M + 2; i++) {
+    for (int j = 0; j < N + 2; j++) {
+      for (int k = 0; k < O + 2; k++) {
+        total_density += dens[i][j][k];
+  }}}
   return total_density;
 }
 
