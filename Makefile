@@ -1,6 +1,6 @@
 CPP = g++ -Wall
 SRCS = main.cpp fluid_solver.cpp EventManager.cpp
-CFLAGS = -O3 -Ofast -march=native -ftree-vectorize -mavx 
+CFLAGS = -O3 -Ofast -march=native -ftree-vectorize -mavx -ffast-math 
 
 all:
 	$(CPP) $(CFLAGS) $(SRCS) -o fluid_sim
