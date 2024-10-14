@@ -60,21 +60,21 @@ void free_data() {
 }
 
 // Apply events (source or force) for the current timestep
-void apply_events(const std::vector<Event> &events) {
-  int i = M/2,  j = N/2, k = O/2;
+void apply_events(const std::vector<Event>& events) {
+    int i = M / 2, j = N / 2, k = O / 2;
+    int index = IX(i, j, k); 
 
-  for (const auto &event : events) {
-    if (event.type == ADD_SOURCE) {
-      // Apply density source at the center of the grid
-      dens[IX(i, j, k)] = event.density;
-    } else if (event.type == APPLY_FORCE) {
-      // Apply forces based on the event's vector (fx, fy, fz)
-      u[IX(i, j, k)] = event.force.x;
-      v[IX(i, j, k)] = event.force.y;
-      w[IX(i, j, k)] = event.force.z;
+    for (const auto& event : events) {
+        if (event.type == ADD_SOURCE) {
+            dens[index] = event.density;
+        } else if (event.type == APPLY_FORCE) {
+            u[index] = event.force.x;
+            v[index] = event.force.y;
+            w[index] = event.force.z;
+        }
     }
-  }
 }
+
 
 // Function to sum the total density
 float sum_density() {

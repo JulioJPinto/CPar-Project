@@ -3,13 +3,9 @@
 #include <algorithm> // For std::max
 
 #define IX(i, j, k) ((i) + (M + 2) * (j) + (M + 2) * (N + 2) * (k))
-#define SWAP(x0, x)                                                            \
-  {                                                                            \
-    float *tmp = x0;                                                           \
-    x0 = x;                                                                    \
-    x = tmp;                                                                   \
-  }
-#define MAX(a, b) (((a) > (b)) ? (a) : (b))
+
+#define SWAP(x0, x) { std::swap(x0, x); }
+#define MAX3(a, b, c) (std::max({a, b, c}))
 #define LINEARSOLVERTIMES 20
 
 // Block size for tiling optimization
@@ -26,8 +22,20 @@ void add_source(int M, int N, int O, float *x, float *s, float dt) {
 // Set boundary conditions
 void set_bnd(int M, int N, int O, int b, float *x) {
   int i, j;
+  int loopMN = 1, loopNO = 1, loopMO = 1; 
 
-  int loopMN = b == 3 ? -1 : 1;
+  switch (b) {
+    case 3:
+      loopMN = -1;
+      break;
+    case 2:
+      loopNO = -1;
+      break;
+    case 1:
+      loopMO = -1;
+      break;
+  }
+
   // Set boundary on faces
   for (j = 1; j <= N; j++) {
     for (i = 1; i <= N; i++) {
@@ -36,8 +44,6 @@ void set_bnd(int M, int N, int O, int b, float *x) {
     }
   }
 
-  int loopNO = b == 1 ? -1 : 1;
-
   for (j = 1; j <= O; j++) {
     for (i = 1; i <= N; i++) {
       x[IX(0, i, j)] = x[IX(1, i, j)] * loopNO;
@@ -45,7 +51,6 @@ void set_bnd(int M, int N, int O, int b, float *x) {
     }
   }
 
-  int loopMO = b == 2 ? -1 : 1;
   for (j = 1; j <= O; j++) {
     for (i = 1; i <= M; i++) {
       x[IX(i, 0, j)] = x[IX(i, 1, j)] * loopMO;
@@ -97,7 +102,7 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
 
 // Diffusion step (uses implicit method)
 void diffuse(int M, int N, int O, int b, float *x, float *x0, float diff, float dt) {
-  int max = MAX(MAX(M, N), O);
+  int max = MAX3(M, N, O);
   float a = dt * diff * max * max;
   lin_solve(M, N, O, b, x, x0, a, 1 + 6 * a);
 }
@@ -144,14 +149,12 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
 void project(int M, int N, int O, float *u, float *v, float *w, float *p,
              float *div) {
 
-  float max = 1.0f / MAX(M, MAX(N, O));
+  float max = -0.5f / MAX3(M,N,O);
 
   for (int k = 1; k <= O; k++) {
     for (int j = 1; j <= N; j++) {
       for (int i = 1; i <= M; i++) {
-        div[IX(i, j, k)] =
-            -0.5f *
-            (u[IX(i + 1, j, k)] - u[IX(i - 1, j, k)] + v[IX(i, j + 1, k)] -
+        div[IX(i, j, k)] = (u[IX(i + 1, j, k)] - u[IX(i - 1, j, k)] + v[IX(i, j + 1, k)] -
              v[IX(i, j - 1, k)] + w[IX(i, j, k + 1)] - w[IX(i, j, k - 1)]) * max;
         p[IX(i, j, k)] = 0;
       }
