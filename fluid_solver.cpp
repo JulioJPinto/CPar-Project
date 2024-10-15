@@ -70,9 +70,7 @@ void set_bnd(int M, int N, int O, int b, float *x) {
 }
 
 // Linear solve for implicit methods (diffusion)
-// Apply blocking (tiling) for cache optimization
 void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c) {
-
   float invA = a / c;
   float invC = 1 / c;
 
@@ -80,16 +78,21 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
     for (int kk = 1; kk <= O; kk += BLOCK_SIZE) {
       for (int jj = 1; jj <= N; jj += BLOCK_SIZE) {
         for (int ii = 1; ii <= M; ii += BLOCK_SIZE) {
-
           // Process each block
           for (int k = kk; k < std::min(kk + BLOCK_SIZE, O + 1); k++) {
             for (int j = jj; j < std::min(jj + BLOCK_SIZE, N + 1); j++) {
               for (int i = ii; i < std::min(ii + BLOCK_SIZE, M + 1); i++) {
                 int idx = IX(i, j, k);
+                // Cache neighbor values
+                float left = x[IX(i - 1, j, k)];
+                float right = x[IX(i + 1, j, k)];
+                float down = x[IX(i, j - 1, k)];
+                float up = x[IX(i, j + 1, k)];
+                float back = x[IX(i, j, k - 1)];
+                float front = x[IX(i, j, k + 1)];
+                
                 x[idx] = (x0[idx] * invC +
-                          invA * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
-                               x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
-                               x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
+                          invA * (left + right + down + up + back + front));
               }
             }
           }
@@ -112,35 +115,44 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
             float *w, float dt) {
   float dtX = dt * M, dtY = dt * N, dtZ = dt * O;
 
-  for (int k = 1; k <= O; k++) {
-    for (int j = 1; j <= N; j++) {
-      for (int i = 1; i <= M; i++) {
-        float x = i - dtX * u[IX(i, j, k)];
-        float y = j - dtY * v[IX(i, j, k)];
-        float z = k - dtZ * w[IX(i, j, k)];
+  for (int kk = 1; kk <= O; kk += BLOCK_SIZE) {
+      for (int jj = 1; jj <= N; jj += BLOCK_SIZE) {
+          for (int ii = 1; ii <= M; ii += BLOCK_SIZE) {
 
-        // Clamp to grid boundaries
-        x = std::max(0.5f, std::min((float)M + 0.5f, x));
-        y = std::max(0.5f, std::min((float)N + 0.5f, y));
-        z = std::max(0.5f, std::min((float)O + 0.5f, z));
+              // Process each block
+              for (int k = kk; k < std::min(kk + BLOCK_SIZE, O + 1); k++) {
+                  for (int j = jj; j < std::min(jj + BLOCK_SIZE, N + 1); j++) {
+                      for (int i = ii; i < std::min(ii + BLOCK_SIZE, M + 1); i++) {
+                          // Backtrace particle positions
+                          float x = i - dtX * u[IX(i, j, k)];
+                          float y = j - dtY * v[IX(i, j, k)];
+                          float z = k - dtZ * w[IX(i, j, k)];
 
-        int i0 = (int)x, i1 = i0 + 1;
-        int j0 = (int)y, j1 = j0 + 1;
-        int k0 = (int)z, k1 = k0 + 1;
+                          // Clamp to grid boundaries
+                          x = std::max(0.5f, std::min((float)M + 0.5f, x));
+                          y = std::max(0.5f, std::min((float)N + 0.5f, y));
+                          z = std::max(0.5f, std::min((float)O + 0.5f, z));
 
-        float s1 = x - i0, s0 = 1 - s1;
-        float t1 = y - j0, t0 = 1 - t1;
-        float u1 = z - k0, u0 = 1 - u1;
+                          int i0 = (int)x; int j0 = (int)y; int k0 = (int)z;
+                          int i1 = i0 + 1; int j1 = j0 + 1; int k1 = k0 + 1;
 
-        d[IX(i, j, k)] =
-            s0 * (t0 * (u0 * d0[IX(i0, j0, k0)] + u1 * d0[IX(i0, j0, k1)]) +
-                  t1 * (u0 * d0[IX(i0, j1, k0)] + u1 * d0[IX(i0, j1, k1)])) +
-            s1 * (t0 * (u0 * d0[IX(i1, j0, k0)] + u1 * d0[IX(i1, j0, k1)]) +
-                  t1 * (u0 * d0[IX(i1, j1, k0)] + u1 * d0[IX(i1, j1, k1)]));
+                          // Linear interpolation
+                          float s1 = x - i0, s0 = 1 - s1;
+                          float t1 = y - j0, t0 = 1 - t1;
+                          float u1 = z - k0, u0 = 1 - u1;
+
+                          d[IX(i, j, k)] = s0 * (t0 * (u0 * d0[IX(i0, j0, k0)] + u1 * d0[IX(i0, j0, k1)]) +
+                                                  t1 * (u0 * d0[IX(i0, j1, k0)] + u1 * d0[IX(i0, j1, k1)])) +
+                                            s1 * (t0 * (u0 * d0[IX(i1, j0, k0)] + u1 * d0[IX(i1, j0, k1)]) +
+                                                  t1 * (u0 * d0[IX(i1, j1, k0)] + u1 * d0[IX(i1, j1, k1)]));
+                      }
+                  }
+              }
+          }
       }
-    }
   }
-  set_bnd(M, N, O, b, d);
+
+    set_bnd(M, N, O, b, d);
 }
 
 
