@@ -28,3 +28,22 @@ graph-prof: run-prof
 	gprof2dot -o output.dot main.gprof
 	rm gmon.out
 	dot -Tpng -o output.png output.dot
+
+clean-prof:
+	@echo Cleaning up...
+	@rm -f prof_md gmon.out main.gprof output.dot output.png
+	@echo Done.
+
+# Compiling for debugging.
+
+DEBUG_FLAGS = -g
+
+debug:
+	$(CPP) $(DEBUG_FLAGS) $(SRCS) -o fluid_sim
+
+run-debug: debug
+
+clean-debug:
+	@echo Cleaning up...
+	@rm -f fluid_sim
+	@echo Done.

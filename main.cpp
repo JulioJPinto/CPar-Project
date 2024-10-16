@@ -5,7 +5,7 @@
 
 #define SIZE 42
 
-#define IX(i, j, k) ((i) + (M + 2) * (j) + (M + 2) * (N + 2) * (k))
+#define IX(i, j, k) ((i) + (M + 2) * ((j) + (N + 2) * (k)))
 
 // Globals for the grid size
 static int M = SIZE;

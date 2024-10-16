@@ -2,7 +2,7 @@
 #include <cmath>
 #include <algorithm> // For std::max
 
-#define IX(i, j, k) ((i) + (M + 2) * (j) + (M + 2) * (N + 2) * (k))
+#define IX(i, j, k) ((i) + (M + 2) * ((j) + (N + 2) * (k)))
 
 #define SWAP(x0, x) { std::swap(x0, x); }
 #define MAX3(a, b, c) (std::max({a, b, c}))
@@ -11,7 +11,18 @@
 // Block size for tiling optimization
 #define BLOCK_SIZE 4
 
-// Add sources (density or velocity)
+/**
+ * @brief Adds the source term to the target array.
+ * 
+ * This function adds the source values `s` to the target array `x`, scaled by the time step `dt`.
+ * 
+ * @param M Size of the grid in the x-dimension.
+ * @param N Size of the grid in the y-dimension.
+ * @param O Size of the grid in the z-dimension.
+ * @param x Target array to which the source will be added.
+ * @param s Source array.
+ * @param dt Time step for the simulation.
+ */
 void add_source(int M, int N, int O, float *x, float *s, float dt) {
   int size = (M + 2) * (N + 2) * (O + 2);
   for (int i = 0; i < size; i++) {
@@ -19,7 +30,18 @@ void add_source(int M, int N, int O, float *x, float *s, float dt) {
   }
 }
 
-// Set boundary conditions
+/**
+ * @brief Sets the boundary conditions for the simulation.
+ * 
+ * This function applies boundary conditions to the simulation data, ensuring that
+ * the values at the boundaries behave correctly based on the type of data being handled.
+ * 
+ * @param M Size of the grid in the x-dimension.
+ * @param N Size of the grid in the y-dimension.
+ * @param O Size of the grid in the z-dimension.
+ * @param b Boundary condition type (1, 2, or 3 for velocity; 0 for density).
+ * @param x Array representing the field for which boundary conditions are set.
+ */
 void set_bnd(int M, int N, int O, int b, float *x) {
   int i, j;
   int loopMN = 1, loopNO = 1, loopMO = 1; 
@@ -58,7 +80,6 @@ void set_bnd(int M, int N, int O, int b, float *x) {
     }
   }
 
-
   // Set corners
   x[IX(0, 0, 0)] = 0.33f * (x[IX(1, 0, 0)] + x[IX(0, 1, 0)] + x[IX(0, 0, 1)]);
   x[IX(M + 1, 0, 0)] =
@@ -69,7 +90,20 @@ void set_bnd(int M, int N, int O, int b, float *x) {
                                     x[IX(M + 1, N + 1, 1)]);
 }
 
-// Linear solve for implicit methods (diffusion)
+/**
+ * @brief Performs the linear solver step using the Gauss-Seidel method.
+ * 
+ * This function solves the linear system using an iterative Gauss-Seidel method to handle the diffusion process.
+ * 
+ * @param M Size of the grid in the x-dimension.
+ * @param N Size of the grid in the y-dimension.
+ * @param O Size of the grid in the z-dimension.
+ * @param b Boundary condition type.
+ * @param x Output array for the solved values.
+ * @param x0 Input array of the previous values.
+ * @param a Coefficient used in the solver.
+ * @param c Constant term in the linear system.
+ */
 void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c) {
   float invA = a / c;
   float invC = 1 / c;
@@ -103,57 +137,107 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
   }
 }
 
-// Diffusion step (uses implicit method)
+/**
+ * @brief Diffusion step for the fluid simulation.
+ * 
+ * This function simulates the diffusion of quantities (e.g., velocity or density)
+ * using an implicit method.
+ * 
+ * @param M Size of the grid in the x-dimension.
+ * @param N Size of the grid in the y-dimension.
+ * @param O Size of the grid in the z-dimension.
+ * @param b Boundary condition type.
+ * @param x Output array for the diffused values.
+ * @param x0 Input array for the previous values.
+ * @param diff Diffusion coefficient.
+ * @param dt Time step for the simulation.
+ */
 void diffuse(int M, int N, int O, int b, float *x, float *x0, float diff, float dt) {
   int max = MAX3(M, N, O);
   float a = dt * diff * max * max;
   lin_solve(M, N, O, b, x, x0, a, 1 + 6 * a);
 }
 
-// Advection step (uses velocity field to move quantities)
-void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
-            float *w, float dt) {
-  float dtX = dt * M, dtY = dt * N, dtZ = dt * O;
+/**
+ * @brief Advection step for the fluid simulation.
+ * 
+ * This function moves quantities (e.g., velocity or density) through the velocity field.
+ * 
+ * @param M Size of the grid in the x-dimension.
+ * @param N Size of the grid in the y-dimension.
+ * @param O Size of the grid in the z-dimension.
+ * @param b Boundary condition type.
+ * @param d Output array for the advected values.
+ * @param d0 Input array of the previous values.
+ * @param u x-component of the velocity field.
+ * @param v y-component of the velocity field.
+ * @param w z-component of the velocity field.
+ * @param dt Time step for the simulation.
+ */
+void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v, float *w, float dt) {
+    float dtX = dt * M, dtY = dt * N, dtZ = dt * O;
 
-  for (int kk = 1; kk <= O; kk += BLOCK_SIZE) {
-      for (int jj = 1; jj <= N; jj += BLOCK_SIZE) {
-          for (int ii = 1; ii <= M; ii += BLOCK_SIZE) {
+    // Outer block loops (blocking technique to improve cache usage)
+    for (int kk = 1; kk <= O; kk += BLOCK_SIZE) {
+        for (int jj = 1; jj <= N; jj += BLOCK_SIZE) {
+            for (int ii = 1; ii <= M; ii += BLOCK_SIZE) {
 
-              // Process each block
-              for (int k = kk; k < std::min(kk + BLOCK_SIZE, O + 1); k++) {
-                  for (int j = jj; j < std::min(jj + BLOCK_SIZE, N + 1); j++) {
-                      for (int i = ii; i < std::min(ii + BLOCK_SIZE, M + 1); i++) {
-                          // Backtrace particle positions
-                          float x = i - dtX * u[IX(i, j, k)];
-                          float y = j - dtY * v[IX(i, j, k)];
-                          float z = k - dtZ * w[IX(i, j, k)];
+                // Process each block
+                int k_end = std::min(kk + BLOCK_SIZE, O + 1);
+                int j_end = std::min(jj + BLOCK_SIZE, N + 1);
+                int i_end = std::min(ii + BLOCK_SIZE, M + 1);
 
-                          // Clamp to grid boundaries
-                          x = std::max(0.5f, std::min((float)M + 0.5f, x));
-                          y = std::max(0.5f, std::min((float)N + 0.5f, y));
-                          z = std::max(0.5f, std::min((float)O + 0.5f, z));
+                for (int k = kk; k < k_end; ++k) {
+                    for (int j = jj; j < j_end; ++j) {
+                        for (int i = ii; i < i_end; ++i) {
 
-                          int i0 = (int)x; int j0 = (int)y; int k0 = (int)z;
-                          int i1 = i0 + 1; int j1 = j0 + 1; int k1 = k0 + 1;
+                            // Cache the index for better locality
+                            int idx = IX(i, j, k);
 
-                          // Linear interpolation
-                          float s1 = x - i0, s0 = 1 - s1;
-                          float t1 = y - j0, t0 = 1 - t1;
-                          float u1 = z - k0, u0 = 1 - u1;
+                            // Backtrace particle positions
+                            float x = i - dtX * u[idx];
+                            float y = j - dtY * v[idx];
+                            float z = k - dtZ * w[idx];
 
-                          d[IX(i, j, k)] = s0 * (t0 * (u0 * d0[IX(i0, j0, k0)] + u1 * d0[IX(i0, j0, k1)]) +
-                                                  t1 * (u0 * d0[IX(i0, j1, k0)] + u1 * d0[IX(i0, j1, k1)])) +
-                                            s1 * (t0 * (u0 * d0[IX(i1, j0, k0)] + u1 * d0[IX(i1, j0, k1)]) +
-                                                  t1 * (u0 * d0[IX(i1, j1, k0)] + u1 * d0[IX(i1, j1, k1)]));
-                      }
-                  }
-              }
-          }
-      }
-  }
+                            // Clamp positions to grid boundaries
+                            x = std::max(0.5f, std::min((float)M + 0.5f, x));
+                            y = std::max(0.5f, std::min((float)N + 0.5f, y));
+                            z = std::max(0.5f, std::min((float)O + 0.5f, z));
 
+                            // Precompute integer and fractional components for interpolation
+                            int i0 = (int)x, j0 = (int)y, k0 = (int)z;
+                            int i1 = i0 + 1, j1 = j0 + 1, k1 = k0 + 1;
+
+                            float s1 = x - i0, s0 = 1.0f - s1;
+                            float t1 = y - j0, t0 = 1.0f - t1;
+                            float u1 = z - k0, u0 = 1.0f - u1;
+
+                            // Linear interpolation
+                            float d000 = d0[IX(i0, j0, k0)];
+                            float d001 = d0[IX(i0, j0, k1)];
+                            float d010 = d0[IX(i0, j1, k0)];
+                            float d011 = d0[IX(i0, j1, k1)];
+                            float d100 = d0[IX(i1, j0, k0)];
+                            float d101 = d0[IX(i1, j0, k1)];
+                            float d110 = d0[IX(i1, j1, k0)];
+                            float d111 = d0[IX(i1, j1, k1)];
+
+                            d[idx] = s0 * (t0 * (u0 * d000 + u1 * d001) +
+                                           t1 * (u0 * d010 + u1 * d011)) +
+                                     s1 * (t0 * (u0 * d100 + u1 * d101) +
+                                           t1 * (u0 * d110 + u1 * d111));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Set boundaries (this function should be optimized separately if needed)
     set_bnd(M, N, O, b, d);
 }
+
+
 
 
 // Projection step to ensure incompressibility (make the velocity field
