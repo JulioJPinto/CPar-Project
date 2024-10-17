@@ -1,4 +1,5 @@
 #include "fluid_solver.h"
+#include "vector.h"
 #include <cmath>
 #include <algorithm> // For std::max
 
@@ -178,6 +179,10 @@ void diffuse(int M, int N, int O, int b, float *x, float *x0, float diff, float 
 void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v, float *w, float dt) {
     float dtX = dt * M, dtY = dt * N, dtZ = dt * O;
 
+    Vector dtX_vec(dtX), dtY_vec(dtY), dtZ_vec(dtZ);
+    Vector half_vec(0.5f);
+    Vector M_vec((float)M + 0.5f), N_vec((float)N + 0.5f), O_vec((float)O + 0.5f);
+
     // Outer block loops (blocking technique to improve cache usage)
     for (int kk = 1; kk <= O; kk += BLOCK_VECT_SIZE) {
         for (int jj = 1; jj <= N; jj += BLOCK_VECT_SIZE) {
@@ -189,47 +194,76 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
                 int i_end = std::min(ii + BLOCK_VECT_SIZE, M + 1);
 
                 for (int k = kk; k < k_end; ++k) {
-                    for (int j = jj; j < j_end; ++j) {
-                        for (int i = ii; i < i_end; ++i) {
+                  for (int j = jj; j < j_end; ++j) {
+                      for (int i = ii; i < i_end; i += BLOCK_VECT_SIZE) {
+                          // Cache the base index for vectorized operations
+                          int idx_base = IX(i, j, k);
 
-                            // Cache the index for better locality
-                            int idx = IX(i, j, k);
+                          // Load velocities (u, v, w) for BLOCK_VECT_SIZE elements at once
+                          Vector u_vec(&u[idx_base]);
+                          Vector v_vec(&v[idx_base]);
+                          Vector w_vec(&w[idx_base]);
 
-                            // Backtrace particle positions
-                            float x = i - dtX * u[idx];
-                            float y = j - dtY * v[idx];
-                            float z = k - dtZ * w[idx];
+                          // Backtrace particle positions (x, y, z)
+                          Vector i_vec((float)i, (float)(i+1), (float)(i+2), (float)(i+3),
+                                      (float)(i+4), (float)(i+5), (float)(i+6), (float)(i+7));
+                          Vector j_vec((float)j); // j and k are the same for all elements
+                          Vector k_vec((float)k);
 
-                            // Clamp positions to grid boundaries
-                            x = std::max(0.5f, std::min((float)M + 0.5f, x));
-                            y = std::max(0.5f, std::min((float)N + 0.5f, y));
-                            z = std::max(0.5f, std::min((float)O + 0.5f, z));
+                          Vector x = i_vec - dtX_vec * u_vec;
+                          Vector y = j_vec - dtY_vec * v_vec;
+                          Vector z = k_vec - dtZ_vec * w_vec;
 
-                            // Precompute integer and fractional components for interpolation
-                            int i0 = (int)x, j0 = (int)y, k0 = (int)z;
-                            int i1 = i0 + 1, j1 = j0 + 1, k1 = k0 + 1;
+                          // Clamp positions to grid boundaries
+                          x = Vector::max(half_vec, Vector::min(M_vec, x));
+                          y = Vector::max(half_vec, Vector::min(N_vec, y));
+                          z = Vector::max(half_vec, Vector::min(O_vec, z));
 
-                            float s1 = x - i0, s0 = 1.0f - s1;
-                            float t1 = y - j0, t0 = 1.0f - t1;
-                            float u1 = z - k0, u0 = 1.0f - u1;
+                          // Precompute integer and fractional components for interpolation
+                          Vector i0_vec = x.floor();
+                          Vector j0_vec = y.floor();
+                          Vector k0_vec = z.floor();
 
-                            // Linear interpolation
-                            float d000 = d0[IX(i0, j0, k0)];
-                            float d001 = d0[IX(i0, j0, k1)];
-                            float d010 = d0[IX(i0, j1, k0)];
-                            float d011 = d0[IX(i0, j1, k1)];
-                            float d100 = d0[IX(i1, j0, k0)];
-                            float d101 = d0[IX(i1, j0, k1)];
-                            float d110 = d0[IX(i1, j1, k0)];
-                            float d111 = d0[IX(i1, j1, k1)];
+                          Vector i1_vec = i0_vec + Vector(1.0f);
+                          Vector j1_vec = j0_vec + Vector(1.0f);
+                          Vector k1_vec = k0_vec + Vector(1.0f);
 
-                            d[idx] = s0 * (t0 * (u0 * d000 + u1 * d001) +
-                                           t1 * (u0 * d010 + u1 * d011)) +
-                                     s1 * (t0 * (u0 * d100 + u1 * d101) +
-                                           t1 * (u0 * d110 + u1 * d111));
-                        }
-                    }
-                }
+                          Vector s1 = x - i0_vec;
+                          Vector s0 = Vector(1.0f) - s1;
+                          Vector t1 = y - j0_vec;
+                          Vector t0 = Vector(1.0f) - t1;
+                          Vector u1 = z - k0_vec;
+                          Vector u0 = Vector(1.0f) - u1;
+
+                          // Prepare to load d0 values for interpolation
+                          Vector d000, d001, d010, d011, d100, d101, d110, d111;
+
+                          // Load values for d000 to d111 for the 8 elements in the current vector
+                          for (int offset = 0; offset < BLOCK_VECT_SIZE; ++offset) {
+                              int i0 = (int)i0_vec[offset], j0 = (int)j0_vec[offset], k0 = (int)k0_vec[offset];
+                              int i1 = i0 + 1, j1 = j0 + 1, k1 = k0 + 1;
+
+                              d000[offset] = d0[IX(i0, j0, k0)];
+                              d001[offset] = d0[IX(i0, j0, k1)];
+                              d010[offset] = d0[IX(i0, j1, k0)];
+                              d011[offset] = d0[IX(i0, j1, k1)];
+                              d100[offset] = d0[IX(i1, j0, k0)];
+                              d101[offset] = d0[IX(i1, j0, k1)];
+                              d110[offset] = d0[IX(i1, j1, k0)];
+                              d111[offset] = d0[IX(i1, j1, k1)];
+                          }
+
+                          // Perform linear interpolation for the 8 elements in the vector
+                          Vector d_interp = s0 * (t0 * (u0 * d000 + u1 * d001) +
+                                                  t1 * (u0 * d010 + u1 * d011)) +
+                                            s1 * (t0 * (u0 * d100 + u1 * d101) +
+                                                  t1 * (u0 * d110 + u1 * d111));
+
+                          // Store the result back into d array
+                          d_interp.store(&d[idx_base]);
+                      }
+                  }
+              }
             }
         }
     }

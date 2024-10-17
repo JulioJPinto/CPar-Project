@@ -69,10 +69,10 @@ Vector Vector::floor() const {
 
 static Vector min(const Vector& a, const Vector& b) {
     // Perform element-wise min operation on two vectors
-    return Vector(_mm256_min_ps(a.value, b.value));
+    return Vector(_mm256_min_ps(a.getValue(), b.getValue()));
 }
 
 static Vector max(const Vector& a, const Vector& b) {
     // Perform element-wise max operation on two vectors
-    return Vector(_mm256_max_ps(a.value, b.value));
+    return Vector(_mm256_max_ps(a.getValue(), b.getValue()));
 }
