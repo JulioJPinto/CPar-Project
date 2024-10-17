@@ -10,6 +10,7 @@
 
 // Block size for tiling optimization
 #define BLOCK_SIZE 4
+#define BLOCK_VECT_SIZE 8
 
 /**
  * @brief Adds the source term to the target array.
@@ -178,14 +179,14 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
     float dtX = dt * M, dtY = dt * N, dtZ = dt * O;
 
     // Outer block loops (blocking technique to improve cache usage)
-    for (int kk = 1; kk <= O; kk += BLOCK_SIZE) {
-        for (int jj = 1; jj <= N; jj += BLOCK_SIZE) {
-            for (int ii = 1; ii <= M; ii += BLOCK_SIZE) {
+    for (int kk = 1; kk <= O; kk += BLOCK_VECT_SIZE) {
+        for (int jj = 1; jj <= N; jj += BLOCK_VECT_SIZE) {
+            for (int ii = 1; ii <= M; ii += BLOCK_VECT_SIZE) {
 
                 // Process each block
-                int k_end = std::min(kk + BLOCK_SIZE, O + 1);
-                int j_end = std::min(jj + BLOCK_SIZE, N + 1);
-                int i_end = std::min(ii + BLOCK_SIZE, M + 1);
+                int k_end = std::min(kk + BLOCK_VECT_SIZE, O + 1);
+                int j_end = std::min(jj + BLOCK_VECT_SIZE, N + 1);
+                int i_end = std::min(ii + BLOCK_VECT_SIZE, M + 1);
 
                 for (int k = kk; k < k_end; ++k) {
                     for (int j = jj; j < j_end; ++j) {

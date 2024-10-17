@@ -1,5 +1,5 @@
 CPP = g++ -Wall
-SRCS = main.cpp fluid_solver.cpp EventManager.cpp
+SRCS = src/*.cpp
 CFLAGS = -O3 -Ofast -march=native -ftree-vectorize -mavx -ffast-math 
 
 all:
