@@ -237,11 +237,20 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
     set_bnd(M, N, O, b, d);
 }
 
-
-
-
-// Projection step to ensure incompressibility (make the velocity field
-// divergence-free)
+/**
+ * @brief Projection step to ensure incompressibility.
+ * 
+ * This function projects the velocity field to ensure that it is divergence-free.
+ * 
+ * @param M Size of the grid in the x-dimension.
+ * @param N Size of the grid in the y-dimension.
+ * @param O Size of the grid in the z-dimension.
+ * @param u x-component of the velocity field.
+ * @param v y-component of the velocity field.
+ * @param w z-component of the velocity field.
+ * @param p Pressure field.
+ * @param div Divergence field.
+ */
 void project(int M, int N, int O, float *u, float *v, float *w, float *p,
              float *div) {
 
@@ -275,7 +284,7 @@ void project(int M, int N, int O, float *u, float *v, float *w, float *p,
   set_bnd(M, N, O, 3, w);
 }
 
-// Step function for density
+/***/
 void dens_step(int M, int N, int O, float *x, float *x0, float *u, float *v,
                float *w, float diff, float dt) {
   add_source(M, N, O, x, x0, dt);

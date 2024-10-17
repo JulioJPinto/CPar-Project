@@ -7,6 +7,8 @@
 
 #define IX(i, j, k) ((i) + (M + 2) * ((j) + (N + 2) * (k)))
 
+#define ALIGNED_ARRAY_FLOAT(s,a) static_cast<float*>(std::aligned_alloc(a, s * sizeof(float)))
+
 // Globals for the grid size
 static int M = SIZE;
 static int N = SIZE;
@@ -22,14 +24,16 @@ static float *dens, *dens_prev;
 // Function to allocate simulation data
 int allocate_data() {
   int size = (M + 2) * (N + 2) * (O + 2);
-  u = new float[size];
-  v = new float[size];
-  w = new float[size];
-  u_prev = new float[size];
-  v_prev = new float[size];
-  w_prev = new float[size];
-  dens = new float[size];
-  dens_prev = new float[size];
+  int alignment = 64;
+  
+  u = ALIGNED_ARRAY_FLOAT(size, alignment);
+  v = ALIGNED_ARRAY_FLOAT(size, alignment);
+  w = ALIGNED_ARRAY_FLOAT(size, alignment);
+  u_prev = ALIGNED_ARRAY_FLOAT(size, alignment);
+  v_prev = ALIGNED_ARRAY_FLOAT(size, alignment);
+  w_prev = ALIGNED_ARRAY_FLOAT(size, alignment);
+  dens = ALIGNED_ARRAY_FLOAT(size, alignment);
+  dens_prev = ALIGNED_ARRAY_FLOAT(size, alignment);
 
   if (!u || !v || !w || !u_prev || !v_prev || !w_prev || !dens || !dens_prev) {
     std::cerr << "Cannot allocate memory" << std::endl;
@@ -49,14 +53,15 @@ void clear_data() {
 
 // Free allocated memory
 void free_data() {
-  delete[] u;
-  delete[] v;
-  delete[] w;
-  delete[] u_prev;
-  delete[] v_prev;
-  delete[] w_prev;
-  delete[] dens;
-  delete[] dens_prev;
+  std::free(u);
+  std::free(v);
+  std::free(w);
+  std::free(u_prev);
+  std::free(v_prev);
+  std::free(w_prev);
+  std::free(dens);
+  std::free(dens_prev);
+
 }
 
 // Apply events (source or force) for the current timestep
