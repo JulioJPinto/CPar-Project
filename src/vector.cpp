@@ -61,3 +61,18 @@ Vector Vector::operator/(const Vector& other) const {
     // Perform element-wise division of two vectors
     return Vector(_mm256_div_ps(value, other.getValue()));
 }
+
+Vector Vector::floor() const {
+    // Perform element-wise floor operation on the vector
+    return Vector(_mm256_floor_ps(value));
+}
+
+static Vector min(const Vector& a, const Vector& b) {
+    // Perform element-wise min operation on two vectors
+    return Vector(_mm256_min_ps(a.value, b.value));
+}
+
+static Vector max(const Vector& a, const Vector& b) {
+    // Perform element-wise max operation on two vectors
+    return Vector(_mm256_max_ps(a.value, b.value));
+}
