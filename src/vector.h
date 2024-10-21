@@ -79,11 +79,11 @@ public:
      */
     Vector operator/(const Vector& other) const;
 
-    Vector floor() const;
-    // Min function for vectors
-    static Vector min(const Vector& a, const Vector& b);
+    // Vector floor() const;
+    // // Min function for vectors
+    // static Vector min(const Vector& a, const Vector& b);
 
-    // Max function for vectors
-    static Vector max(const Vector& a, const Vector& b);
+    // // Max function for vectors
+    // static Vector max(const Vector& a, const Vector& b);
 
 };

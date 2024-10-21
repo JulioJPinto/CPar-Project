@@ -109,7 +109,22 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
   float invA = a / c;
   float invC = 1 / c;
 
+  // Use a stack-allocated array for precomputing x0[idx] * invC
+  // Size of the array (M+2)*(N+2)*(O+2) must fit within the stack limits
+  float precomputed_x0[(M + 2) * (N + 2) * (O + 2)];
+
+  // Precompute x0[idx] * invC
+  for (int k = 0; k <= O + 1; ++k) {
+    for (int j = 0; j <= N + 1; ++j) {
+      for (int i = 0; i <= M + 1; ++i) {
+        int idx = IX(i, j, k);
+        precomputed_x0[idx] = x0[idx] * invC;
+      }
+    }
+  }
+
   for (int l = 0; l < LINEARSOLVERTIMES; l++) {
+
     for (int kk = 1; kk <= O; kk += BLOCK_SIZE) {
       for (int jj = 1; jj <= N; jj += BLOCK_SIZE) {
         for (int ii = 1; ii <= M; ii += BLOCK_SIZE) {
@@ -125,9 +140,9 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
                 float up = x[IX(i, j + 1, k)];
                 float back = x[IX(i, j, k - 1)];
                 float front = x[IX(i, j, k + 1)];
-                
-                x[idx] = (x0[idx] * invC +
-                          invA * (left + right + down + up + back + front));
+
+                // Use precomputed x0[idx] * invC
+                x[idx] = (precomputed_x0[idx] + invA * (left + right + down + up + back + front));
               }
             }
           }
@@ -178,58 +193,46 @@ void diffuse(int M, int N, int O, int b, float *x, float *x0, float diff, float 
 void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v, float *w, float dt) {
     float dtX = dt * M, dtY = dt * N, dtZ = dt * O;
 
-    // Outer block loops (blocking technique to improve cache usage)
-    for (int kk = 1; kk <= O; kk += BLOCK_VECT_SIZE) {
-        for (int jj = 1; jj <= N; jj += BLOCK_VECT_SIZE) {
-            for (int ii = 1; ii <= M; ii += BLOCK_VECT_SIZE) {
+    // Loop through the entire grid directly
+    for (int k = 1; k <= O; ++k) {
+        for (int j = 1; j <= N; ++j) {
+            for (int i = 1; i <= M; ++i) {
 
-                // Process each block
-                int k_end = std::min(kk + BLOCK_VECT_SIZE, O + 1);
-                int j_end = std::min(jj + BLOCK_VECT_SIZE, N + 1);
-                int i_end = std::min(ii + BLOCK_VECT_SIZE, M + 1);
+                // Cache the index for better locality
+                int idx = IX(i, j, k);
 
-                for (int k = kk; k < k_end; ++k) {
-                    for (int j = jj; j < j_end; ++j) {
-                        for (int i = ii; i < i_end; ++i) {
+                // Backtrace particle positions
+                float x = i - dtX * u[idx];
+                float y = j - dtY * v[idx];
+                float z = k - dtZ * w[idx];
 
-                            // Cache the index for better locality
-                            int idx = IX(i, j, k);
+                // Clamp positions to grid boundaries
+                x = std::max(0.5f, std::min((float)M + 0.5f, x));
+                y = std::max(0.5f, std::min((float)N + 0.5f, y));
+                z = std::max(0.5f, std::min((float)O + 0.5f, z));
 
-                            // Backtrace particle positions
-                            float x = i - dtX * u[idx];
-                            float y = j - dtY * v[idx];
-                            float z = k - dtZ * w[idx];
+                // Precompute integer and fractional components for interpolation
+                int i0 = (int)x, j0 = (int)y, k0 = (int)z;
+                int i1 = i0 + 1, j1 = j0 + 1, k1 = k0 + 1;
 
-                            // Clamp positions to grid boundaries
-                            x = std::max(0.5f, std::min((float)M + 0.5f, x));
-                            y = std::max(0.5f, std::min((float)N + 0.5f, y));
-                            z = std::max(0.5f, std::min((float)O + 0.5f, z));
+                float s1 = x - i0, s0 = 1.0f - s1;
+                float t1 = y - j0, t0 = 1.0f - t1;
+                float u1 = z - k0, u0 = 1.0f - u1;
 
-                            // Precompute integer and fractional components for interpolation
-                            int i0 = (int)x, j0 = (int)y, k0 = (int)z;
-                            int i1 = i0 + 1, j1 = j0 + 1, k1 = k0 + 1;
+                // Linear interpolation
+                float d000 = d0[IX(i0, j0, k0)];
+                float d001 = d0[IX(i0, j0, k1)];
+                float d010 = d0[IX(i0, j1, k0)];
+                float d011 = d0[IX(i0, j1, k1)];
+                float d100 = d0[IX(i1, j0, k0)];
+                float d101 = d0[IX(i1, j0, k1)];
+                float d110 = d0[IX(i1, j1, k0)];
+                float d111 = d0[IX(i1, j1, k1)];
 
-                            float s1 = x - i0, s0 = 1.0f - s1;
-                            float t1 = y - j0, t0 = 1.0f - t1;
-                            float u1 = z - k0, u0 = 1.0f - u1;
-
-                            // Linear interpolation
-                            float d000 = d0[IX(i0, j0, k0)];
-                            float d001 = d0[IX(i0, j0, k1)];
-                            float d010 = d0[IX(i0, j1, k0)];
-                            float d011 = d0[IX(i0, j1, k1)];
-                            float d100 = d0[IX(i1, j0, k0)];
-                            float d101 = d0[IX(i1, j0, k1)];
-                            float d110 = d0[IX(i1, j1, k0)];
-                            float d111 = d0[IX(i1, j1, k1)];
-
-                            d[idx] = s0 * (t0 * (u0 * d000 + u1 * d001) +
-                                           t1 * (u0 * d010 + u1 * d011)) +
-                                     s1 * (t0 * (u0 * d100 + u1 * d101) +
-                                           t1 * (u0 * d110 + u1 * d111));
-                        }
-                    }
-                }
+                d[idx] = s0 * (t0 * (u0 * d000 + u1 * d001) +
+                               t1 * (u0 * d010 + u1 * d011)) +
+                         s1 * (t0 * (u0 * d100 + u1 * d101) +
+                               t1 * (u0 * d110 + u1 * d111));
             }
         }
     }
@@ -237,6 +240,7 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
     // Set boundaries (this function should be optimized separately if needed)
     set_bnd(M, N, O, b, d);
 }
+
 
 /**
  * @brief Projection step to ensure incompressibility.
