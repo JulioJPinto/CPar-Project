@@ -1,6 +1,6 @@
 CPP = g++ -Wall
 SRCS = src/*.cpp
-CFLAGS = -O3 -Ofast -march=native -ftree-vectorize -mavx -ffast-math 
+CFLAGS = -Ofast -march=native -ftree-vectorize -mavx 
 
 all:
 	$(CPP) $(CFLAGS) $(SRCS) -o fluid_sim
