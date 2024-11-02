@@ -111,7 +111,17 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
     float tol = 1e-7, max_c, old_x, change;
     int l = 0;
 
-    float invC = 1.0f / c;
+    float invC = 1.0f / c, invA = a / c;
+
+    float precomputed_x0[(M + 2) * (N + 2) * (O + 2)];
+
+    for(int k = 1; k <= O; k++) {
+        for(int j = 1; j <= N; j++) {
+            for(int i = 1; i <= M; i++) {
+                precomputed_x0[IX(i,j,k)] = x0[IX(i, j, k)] * invC;
+            }
+        }
+    }
     
     do {
         max_c = 0.0f;
@@ -119,10 +129,10 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
             for (int j = 1; j <= N; j++) {
                  for (int i = 1 + (k+j)%2; i <= M; i+=2) {
                     old_x = x[IX(i, j, k)];
-                    x[IX(i, j, k)] = (x0[IX(i, j, k)] +
-                                      a * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
-                                           x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
-                                           x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)])) * invC;
+                    x[IX(i, j, k)] = (precomputed_x0[IX(i,j,k)] +
+                                      invA * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
+                                              x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
+                                              x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
                     change = fabs(x[IX(i, j, k)] - old_x);
                     if(change > max_c) max_c = change;
                 }
@@ -133,10 +143,10 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
             for (int j = 1; j <= N; j++) {
                 for (int i = 1 + (k+j+1)%2; i <= M; i+=2) {
                     old_x = x[IX(i, j, k)];
-                    x[IX(i, j, k)] = (x0[IX(i, j, k)] +
-                                      a * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
-                                           x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
-                                           x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)])) * invC;
+                    x[IX(i, j, k)] = (precomputed_x0[IX(i,j,k)] +
+                                      invA * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
+                                              x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
+                                              x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
                     change = fabs(x[IX(i, j, k)] - old_x);
                     if(change > max_c) max_c = change;
                 }
