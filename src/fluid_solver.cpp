@@ -105,52 +105,45 @@ void set_bnd(int M, int N, int O, int b, float *x) {
  * @param a Coefficient used in the solver.
  * @param c Constant term in the linear system.
  */
+
+// red-black solver with convergence check
 void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c) {
-  float invA = a / c;
-  float invC = 1 / c;
+    float tol = 1e-7, max_c, old_x, change;
+    int l = 0;
 
-  // Use a stack-allocated array for precomputing x0[idx] * invC
-  // Size of the array (M+2)*(N+2)*(O+2) must fit within the stack limits
-  float precomputed_x0[(M + 2) * (N + 2) * (O + 2)];
-
-  // Precompute x0[idx] * invC
-  for (int k = 0; k <= O + 1; ++k) {
-    for (int j = 0; j <= N + 1; ++j) {
-      for (int i = 0; i <= M + 1; ++i) {
-        int idx = IX(i, j, k);
-        precomputed_x0[idx] = x0[idx] * invC;
-      }
-    }
-  }
-
-  for (int l = 0; l < LINEARSOLVERTIMES; l++) {
-
-    for (int kk = 1; kk <= O; kk += BLOCK_SIZE) {
-      for (int jj = 1; jj <= N; jj += BLOCK_SIZE) {
-        for (int ii = 1; ii <= M; ii += BLOCK_SIZE) {
-          // Process each block
-          for (int k = kk; k < std::min(kk + BLOCK_SIZE, O + 1); k++) {
-            for (int j = jj; j < std::min(jj + BLOCK_SIZE, N + 1); j++) {
-              for (int i = ii; i < std::min(ii + BLOCK_SIZE, M + 1); i++) {
-                int idx = IX(i, j, k);
-                // Cache neighbor values
-                float left = x[IX(i - 1, j, k)];
-                float right = x[IX(i + 1, j, k)];
-                float down = x[IX(i, j - 1, k)];
-                float up = x[IX(i, j + 1, k)];
-                float back = x[IX(i, j, k - 1)];
-                float front = x[IX(i, j, k + 1)];
-
-                // Use precomputed x0[idx] * invC
-                x[idx] = (precomputed_x0[idx] + invA * (left + right + down + up + back + front));
-              }
+    float invC = 1.0f / c;
+    
+    do {
+        max_c = 0.0f;
+        for (int k = 1; k <= O; k++) {
+            for (int j = 1; j <= N; j++) {
+                 for (int i = 1 + (k+j)%2; i <= M; i+=2) {
+                    old_x = x[IX(i, j, k)];
+                    x[IX(i, j, k)] = (x0[IX(i, j, k)] +
+                                      a * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
+                                           x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
+                                           x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)])) * invC;
+                    change = fabs(x[IX(i, j, k)] - old_x);
+                    if(change > max_c) max_c = change;
+                }
             }
-          }
         }
-      }
-    }
-    set_bnd(M, N, O, b, x);
-  }
+        
+        for (int k = 1; k <= O; k++) {
+            for (int j = 1; j <= N; j++) {
+                for (int i = 1 + (k+j+1)%2; i <= M; i+=2) {
+                    old_x = x[IX(i, j, k)];
+                    x[IX(i, j, k)] = (x0[IX(i, j, k)] +
+                                      a * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
+                                           x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
+                                           x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)])) * invC;
+                    change = fabs(x[IX(i, j, k)] - old_x);
+                    if(change > max_c) max_c = change;
+                }
+            }
+        }
+        set_bnd(M, N, O, b, x);
+    } while (max_c > tol && ++l < 20);
 }
 
 /**
