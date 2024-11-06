@@ -1,4 +1,5 @@
 #include "fluid_solver.h"
+#include <omp.h>
 #include <cmath>
 #include <algorithm> // For std::max
 
@@ -44,52 +45,54 @@ void add_source(int M, int N, int O, float *x, float *s, float dt) {
  * @param x Array representing the field for which boundary conditions are set.
  */
 void set_bnd(int M, int N, int O, int b, float *x) {
-  int i, j;
-  int loopMN = 1, loopNO = 1, loopMO = 1; 
+    int i, j;
+    int loopMN = 1, loopNO = 1, loopMO = 1; 
 
-  switch (b) {
-    case 3:
-      loopMN = -1;
-      break;
-    case 2:
-      loopNO = -1;
-      break;
-    case 1:
-      loopMO = -1;
-      break;
-  }
-
-  // Set boundary on faces
-  for (j = 1; j <= N; j++) {
-    for (i = 1; i <= N; i++) {
-      x[IX(i, j, 0)] = x[IX(i, j, 1)] * loopMN;
-      x[IX(i, j, O + 1)] = x[IX(i, j, O)] * loopMN;
+    switch (b) {
+        case 3:
+            loopMN = -1;
+            break;
+        case 2:
+            loopNO = -1;
+            break;
+        case 1:
+            loopMO = -1;
+            break;
     }
-  }
 
-  for (j = 1; j <= O; j++) {
-    for (i = 1; i <= N; i++) {
-      x[IX(0, i, j)] = x[IX(1, i, j)] * loopNO;
-      x[IX(M + 1, i, j)] = x[IX(M, i, j)] * loopNO;
+    // Set boundary on faces (parallelized)
+
+    #pragma omp parallel for private(i)
+    for (j = 1; j <= N; j++) {
+        for (i = 1; i <= M; i++) {
+            x[IX(i, j, 0)] = x[IX(i, j, 1)] * loopMN;
+            x[IX(i, j, O + 1)] = x[IX(i, j, O)] * loopMN;
+        }
     }
-  }
 
-  for (j = 1; j <= O; j++) {
-    for (i = 1; i <= M; i++) {
-      x[IX(i, 0, j)] = x[IX(i, 1, j)] * loopMO;
-      x[IX(i, N + 1, j)] = x[IX(i, N, j)] * loopMO;
+    #pragma omp parallel for private(i)
+    for (j = 1; j <= O; j++) {
+        for (i = 1; i <= N; i++) {
+            x[IX(0, i, j)] = x[IX(1, i, j)] * loopNO;
+            x[IX(M + 1, i, j)] = x[IX(M, i, j)] * loopNO;
+        }
     }
-  }
 
-  // Set corners
-  x[IX(0, 0, 0)] = 0.33f * (x[IX(1, 0, 0)] + x[IX(0, 1, 0)] + x[IX(0, 0, 1)]);
-  x[IX(M + 1, 0, 0)] =
-      0.33f * (x[IX(M, 0, 0)] + x[IX(M + 1, 1, 0)] + x[IX(M + 1, 0, 1)]);
-  x[IX(0, N + 1, 0)] =
-      0.33f * (x[IX(1, N + 1, 0)] + x[IX(0, N, 0)] + x[IX(0, N + 1, 1)]);
-  x[IX(M + 1, N + 1, 0)] = 0.33f * (x[IX(M, N + 1, 0)] + x[IX(M + 1, N, 0)] +
-                                    x[IX(M + 1, N + 1, 1)]);
+    #pragma omp parallel for private(i)
+    for (j = 1; j <= O; j++) {
+        for (i = 1; i <= M; i++) {
+            x[IX(i, 0, j)] = x[IX(i, 1, j)] * loopMO;
+            x[IX(i, N + 1, j)] = x[IX(i, N, j)] * loopMO;
+        }
+    }
+
+    // Set corners (not parallelized to avoid race conditions)
+    x[IX(0, 0, 0)] = 0.33f * (x[IX(1, 0, 0)] + x[IX(0, 1, 0)] + x[IX(0, 0, 1)]);
+    x[IX(M + 1, 0, 0)] = 0.33f * (x[IX(M, 0, 0)] + x[IX(M + 1, 1, 0)] + x[IX(M + 1, 0, 1)]);
+    x[IX(0, N + 1, 0)] = 0.33f * (x[IX(1, N + 1, 0)] + x[IX(0, N, 0)] + x[IX(0, N + 1, 1)]);
+    x[IX(M + 1, N + 1, 0)] = 0.33f * (x[IX(M, N + 1, 0)] + x[IX(M + 1, N, 0)] + x[IX(M + 1, N + 1, 1)]);
 }
+
 
 /**
  * @brief Performs the linear solver step using the Gauss-Seidel method.
@@ -113,48 +116,56 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
 
     float invC = 1.0f / c, invA = a / c;
 
+    // Precompute x0/c values for efficiency
     float precomputed_x0[(M + 2) * (N + 2) * (O + 2)];
 
-    for(int k = 1; k <= O; k++) {
-        for(int j = 1; j <= N; j++) {
-            for(int i = 1; i <= M; i++) {
-                precomputed_x0[IX(i,j,k)] = x0[IX(i, j, k)] * invC;
+    #pragma omp parallel for
+    for (int k = 1; k <= O; k++) {
+        for (int j = 1; j <= N; j++) {
+            for (int i = 1; i <= M; i++) {
+                precomputed_x0[IX(i, j, k)] = x0[IX(i, j, k)] * invC;
             }
         }
     }
-    
+
     do {
         max_c = 0.0f;
+        // First half of the sweep (black cells)
+        #pragma omp parallel for reduction(max:max_c) private(old_x, change)
         for (int k = 1; k <= O; k++) {
             for (int j = 1; j <= N; j++) {
-                 for (int i = 1 + (k+j)%2; i <= M; i+=2) {
+                for (int i = 1 + (k + j) % 2; i <= M; i += 2) {
                     old_x = x[IX(i, j, k)];
-                    x[IX(i, j, k)] = (precomputed_x0[IX(i,j,k)] +
+                    x[IX(i, j, k)] = (precomputed_x0[IX(i, j, k)] +
                                       invA * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
                                               x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
                                               x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
                     change = fabs(x[IX(i, j, k)] - old_x);
-                    if(change > max_c) max_c = change;
+                    if (change > max_c) max_c = change;
                 }
             }
         }
-        
+        // Second half of the sweep (white cells)
+        #pragma omp parallel for reduction(max:max_c) private(old_x, change)
         for (int k = 1; k <= O; k++) {
             for (int j = 1; j <= N; j++) {
-                for (int i = 1 + (k+j+1)%2; i <= M; i+=2) {
+                for (int i = 1 + (k + j + 1) % 2; i <= M; i += 2) {
                     old_x = x[IX(i, j, k)];
-                    x[IX(i, j, k)] = (precomputed_x0[IX(i,j,k)] +
+                    x[IX(i, j, k)] = (precomputed_x0[IX(i, j, k)] +
                                       invA * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
                                               x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
                                               x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
                     change = fabs(x[IX(i, j, k)] - old_x);
-                    if(change > max_c) max_c = change;
+                    if (change > max_c) max_c = change;
                 }
             }
         }
+        // Synchronize boundary conditions
         set_bnd(M, N, O, b, x);
+
     } while (max_c > tol && ++l < LINEARSOLVERTIMES);
 }
+
 
 /**
  * @brief Diffusion step for the fluid simulation.
@@ -196,7 +207,8 @@ void diffuse(int M, int N, int O, int b, float *x, float *x0, float diff, float 
 void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v, float *w, float dt) {
     float dtX = dt * M, dtY = dt * N, dtZ = dt * O;
 
-    // Loop through the entire grid directly
+    // Parallelize the outermost loop
+    #pragma omp parallel for collapse(2)
     for (int k = 1; k <= O; ++k) {
         for (int j = 1; j <= N; ++j) {
             for (int i = 1; i <= M; ++i) {

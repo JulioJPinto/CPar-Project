@@ -1,8 +1,12 @@
 CPP = g++ -Wall
 SRCS = src/*.cpp
 CFLAGS = -Ofast -march=native -ftree-vectorize -mavx 
+OPENMP = -fopenmp
 
 all:
+	$(CPP) $(CFLAGS) $(OPENMP) $(SRCS) -o fluid_sim 
+
+seq:
 	$(CPP) $(CFLAGS) $(SRCS) -o fluid_sim
 
 run: 
