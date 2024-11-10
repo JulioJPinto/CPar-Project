@@ -1,6 +1,7 @@
 #include "fluid_solver.h"
 #include <omp.h>
 #include <cmath>
+#include <iostream>
 #include <algorithm> // For std::max
 
 #define IX(i, j, k) ((i) + (M + 2) * ((j) + (N + 2) * (k)))
@@ -9,9 +10,6 @@
 #define MAX3(a, b, c) (std::max({a, b, c}))
 #define LINEARSOLVERTIMES 20
 
-// Block size for tiling optimization
-#define BLOCK_SIZE 4
-#define BLOCK_VECT_SIZE 8
 
 /**
  * @brief Adds the source term to the target array.
@@ -27,6 +25,7 @@
  */
 void add_source(int M, int N, int O, float *x, float *s, float dt) {
   int size = (M + 2) * (N + 2) * (O + 2);
+  #pragma omp parallel for
   for (int i = 0; i < size; i++) {
     x[i] += dt * s[i];
   }
@@ -62,7 +61,7 @@ void set_bnd(int M, int N, int O, int b, float *x) {
 
     // Set boundary on faces (parallelized)
 
-    #pragma omp parallel for private(i)
+    #pragma omp parallel for private(i) 
     for (j = 1; j <= N; j++) {
         for (i = 1; i <= M; i++) {
             x[IX(i, j, 0)] = x[IX(i, j, 1)] * loopMN;
@@ -117,9 +116,9 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
     float invC = 1.0f / c, invA = a / c;
 
     // Precompute x0/c values for efficiency
-    float precomputed_x0[(M + 2) * (N + 2) * (O + 2)];
+    float *precomputed_x0 = new float[(M + 2) * (N + 2) * (O + 2)];
 
-    #pragma omp parallel for
+    #pragma omp parallel for collapse(3)
     for (int k = 1; k <= O; k++) {
         for (int j = 1; j <= N; j++) {
             for (int i = 1; i <= M; i++) {
@@ -131,7 +130,7 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
     do {
         max_c = 0.0f;
         // First half of the sweep (black cells)
-        #pragma omp parallel for reduction(max:max_c) private(old_x, change)
+        #pragma omp parallel for reduction(max:max_c) private(old_x, change) collapse(2)
         for (int k = 1; k <= O; k++) {
             for (int j = 1; j <= N; j++) {
                 for (int i = 1 + (k + j) % 2; i <= M; i += 2) {
@@ -146,7 +145,7 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
             }
         }
         // Second half of the sweep (white cells)
-        #pragma omp parallel for reduction(max:max_c) private(old_x, change)
+        #pragma omp parallel for reduction(max:max_c) private(old_x, change) collapse(2)
         for (int k = 1; k <= O; k++) {
             for (int j = 1; j <= N; j++) {
                 for (int i = 1 + (k + j + 1) % 2; i <= M; i += 2) {
@@ -208,7 +207,7 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
     float dtX = dt * M, dtY = dt * N, dtZ = dt * O;
 
     // Parallelize the outermost loop
-    #pragma omp parallel for collapse(2)
+    #pragma omp parallel for collapse(3)
     for (int k = 1; k <= O; ++k) {
         for (int j = 1; j <= N; ++j) {
             for (int i = 1; i <= M; ++i) {
@@ -276,6 +275,7 @@ void project(int M, int N, int O, float *u, float *v, float *w, float *p,
 
   float max = -0.5f / MAX3(M,N,O);
 
+  #pragma omp parallel for collapse(3)
   for (int k = 1; k <= O; k++) {
     for (int j = 1; j <= N; j++) {
       for (int i = 1; i <= M; i++) {
@@ -289,7 +289,8 @@ void project(int M, int N, int O, float *u, float *v, float *w, float *p,
   set_bnd(M, N, O, 0, div);
   set_bnd(M, N, O, 0, p);
   lin_solve(M, N, O, 0, p, div, 1, 6);
-
+  
+  #pragma omp parallel for collapse(3)
   for (int k = 1; k <= O; k++) {
     for (int j = 1; j <= N; j++) {
       for (int i = 1; i <= M; i++) {
