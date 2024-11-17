@@ -19,5 +19,5 @@ cd ~/$destination_folder/
 make clean
 module load gcc/11.2.0
 make
-sbatch --partition=cpar --cpus-per-task=16 --wrap="perf stat -r 3 -e instructions,cycles,branch-misses,L1-dcache-loads,L1-dcache-load-misses,cycles,duration_time make run"
+sbatch --partition day --constraint=c24 --ntasks=1 --cpus-per-task=48 run.sh
 EOF
