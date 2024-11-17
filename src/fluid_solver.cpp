@@ -6,8 +6,16 @@
 
 #define IX(i, j, k) ((i) + (M + 2) * ((j) + (N + 2) * (k)))
 
-#define SWAP(x0, x) { std::swap(x0, x); }
-#define MAX3(a, b, c) (std::max({a, b, c}))
+#define SWAP(x0, x) \
+  {                \
+    float *tmp = x0; \
+    x0 = x;        \
+    x = tmp;       \
+  }
+
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX3(a, b, c) MAX(MAX(a, b), c)
 #define LINEARSOLVERTIMES 20
 
 
@@ -25,7 +33,7 @@
  */
 void add_source(int M, int N, int O, float *x, float *s, float dt) {
   int size = (M + 2) * (N + 2) * (O + 2);
-  #pragma omp parallel for simd
+  #pragma omp parallel for 
   for (int i = 0; i < size; i++) {
     x[i] += dt * s[i];
   }
@@ -49,7 +57,7 @@ void set_bnd(int M, int N, int O, int b, float *x) {
     float signal = (b == 3 || b == 1 || b == 2) ? -1.0f : 1.0f;
 
     // Set boundary on faces
-    #pragma omp parallel for simd
+    #pragma omp parallel for 
     for (j = 1; j <= N; j++) {
         for (i = 1; i <= M; i++) {
             x[IX(i, j, 0)] = signal * x[IX(i, j, 1)];
@@ -99,7 +107,7 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
     do {
         max_c = 0.0f;
         // First half of the sweep (black cells)
-        #pragma omp parallel for simd reduction(max:max_c) private(old_x, change) collapse(2) 
+        #pragma omp parallel for reduction(max:max_c) private(old_x, change)  
         for (int k = 1; k <= O; k++) {
             for (int j = 1; j <= N; j++) {
                 for (int i = 1 + (k + j) % 2; i <= M; i += 2) {
@@ -114,7 +122,7 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
             }
         }
         // Second half of the sweep (white cells)
-        #pragma omp parallel for simd reduction(max:max_c) private(old_x, change) collapse(2)
+        #pragma omp parallel for reduction(max:max_c) private(old_x, change) 
         for (int k = 1; k <= O; k++) {
             for (int j = 1; j <= N; j++) {
                 for (int i = 1 + (k + j + 1) % 2; i <= M; i += 2) {
@@ -141,7 +149,7 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
  * This function simulates the diffusion of quantities (e.g., velocity or density)
  * using an implicit method.
  * 
- * @param M Size of the grid in the x-dimension.
+ * @param M Size of th´e grid in the x-dimension.
  * @param N Size of the grid in the y-dimension.
  * @param O Size of the grid in the z-dimension.
  * @param b Boundary condition type.
@@ -175,52 +183,35 @@ void diffuse(int M, int N, int O, int b, float *x, float *x0, float diff, float 
 void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v, float *w, float dt) {
     float dtX = dt * M, dtY = dt * N, dtZ = dt * O;
 
-    // Parallelize the outermost loop
     #pragma omp parallel for simd collapse(3)
-    for (int k = 1; k <= O; ++k) {
-        for (int j = 1; j <= N; ++j) {
-            for (int i = 1; i <= M; ++i) {
+    for (int k = 1; k <= O; k++) {
+        for (int j = 1; j <= N; j++) {
+            for (int i = 1; i <= M; i++) {
+                float x = i - dtX * u[IX(i, j, k)];
+                float y = j - dtY * v[IX(i, j, k)];
+                float z = k - dtZ * w[IX(i, j, k)];
 
-                // Cache the index for better locality
-                int idx = IX(i, j, k);
+                // Clamp to grid boundaries
+                x = MAX(0.5f, MIN(M + 0.5f, x));
+                y = MAX(0.5f, MIN(N + 0.5f, y));
+                z = MAX(0.5f, MIN(O + 0.5f, z));
 
-                // Backtrace particle positions
-                float x = i - dtX * u[idx];
-                float y = j - dtY * v[idx];
-                float z = k - dtZ * w[idx];
+                int i0 = (int) x, i1 = i0 + 1;
+                int j0 = (int) y, j1 = j0 + 1;
+                int k0 = (int) z, k1 = k0 + 1;
 
-                // Clamp positions to grid boundaries
-                x = std::max(0.5f, std::min((float)M + 0.5f, x));
-                y = std::max(0.5f, std::min((float)N + 0.5f, y));
-                z = std::max(0.5f, std::min((float)O + 0.5f, z));
+                float s1 = x - i0, s0 = 1 - s1;
+                float t1 = y - j0, t0 = 1 - t1;
+                float u1 = z - k0, u0 = 1 - u1;
 
-                // Precompute integer and fractional components for interpolation
-                int i0 = (int)x, j0 = (int)y, k0 = (int)z;
-                int i1 = i0 + 1, j1 = j0 + 1, k1 = k0 + 1;
-
-                float s1 = x - i0, s0 = 1.0f - s1;
-                float t1 = y - j0, t0 = 1.0f - t1;
-                float u1 = z - k0, u0 = 1.0f - u1;
-
-                // Linear interpolation
-                float d000 = d0[IX(i0, j0, k0)];
-                float d001 = d0[IX(i0, j0, k1)];
-                float d010 = d0[IX(i0, j1, k0)];
-                float d011 = d0[IX(i0, j1, k1)];
-                float d100 = d0[IX(i1, j0, k0)];
-                float d101 = d0[IX(i1, j0, k1)];
-                float d110 = d0[IX(i1, j1, k0)];
-                float d111 = d0[IX(i1, j1, k1)];
-
-                d[idx] = s0 * (t0 * (u0 * d000 + u1 * d001) +
-                               t1 * (u0 * d010 + u1 * d011)) +
-                         s1 * (t0 * (u0 * d100 + u1 * d101) +
-                               t1 * (u0 * d110 + u1 * d111));
+                d[IX(i, j, k)] =
+                        s0 * (t0 * (u0 * d0[IX(i0, j0, k0)] + u1 * d0[IX(i0, j0, k1)]) +
+                              t1 * (u0 * d0[IX(i0, j1, k0)] + u1 * d0[IX(i0, j1, k1)])) +
+                        s1 * (t0 * (u0 * d0[IX(i1, j0, k0)] + u1 * d0[IX(i1, j0, k1)]) +
+                              t1 * (u0 * d0[IX(i1, j1, k0)] + u1 * d0[IX(i1, j1, k1)]));
             }
         }
     }
-
-    // Set boundaries (this function should be optimized separately if needed)
     set_bnd(M, N, O, b, d);
 }
 
@@ -244,7 +235,7 @@ void project(int M, int N, int O, float *u, float *v, float *w, float *p,
 
   float max = -0.5f / MAX3(M,N,O);
 
-  #pragma omp parallel for simd collapse(3)
+  #pragma omp parallel for  
   for (int k = 1; k <= O; k++) {
     for (int j = 1; j <= N; j++) {
       for (int i = 1; i <= M; i++) {
@@ -259,7 +250,7 @@ void project(int M, int N, int O, float *u, float *v, float *w, float *p,
   set_bnd(M, N, O, 0, p);
   lin_solve(M, N, O, 0, p, div, 1, 6);
   
-  #pragma omp parallel for simd collapse(3)
+  #pragma omp parallel for  
   for (int k = 1; k <= O; k++) {
     for (int j = 1; j <= N; j++) {
       for (int i = 1; i <= M; i++) {

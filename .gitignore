@@ -5,4 +5,4 @@ output.*
 prof_md
 gmon.*
 search.sh
-
+.venv/
