@@ -5,12 +5,13 @@ OPENMP = -fopenmp
 
 all:
 	$(CPP) $(CFLAGS) $(OPENMP) $(SRCS) -o fluid_sim 
+	$(CPP) $(CFLAGS) $(SRCS)  -o fluid_sim_seq
 
-seq:
-	$(CPP) $(CFLAGS) -Wno-pragmas $(SRCS)  -o fluid_sim
+runseq:
+	./fluid_sim_seq
 
-run: 
-	./fluid_sim
+runpar:
+	OMP_NUM_THREADS=20 ./fluid_sim
 
 clean:
 	@echo Cleaning up...

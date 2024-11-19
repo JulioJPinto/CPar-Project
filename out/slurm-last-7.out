@@ -139,7 +139,7 @@ sys	0m0.203s
 Running with OMP_NUM_THREADS=24
 Total density after 100 timesteps: 140880
 
-real	0m1.866s
+real	0m1.766s
 user	0m44.216s
 sys	0m0.186s
 Running with OMP_NUM_THREADS=25

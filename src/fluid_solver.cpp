@@ -57,7 +57,7 @@ void set_bnd(int M, int N, int O, int b, float *x) {
     float signal = (b == 3 || b == 1 || b == 2) ? -1.0f : 1.0f;
 
     // Set boundary on faces
-    #pragma omp parallel for 
+    #pragma omp parallel for
     for (j = 1; j <= N; j++) {
         for (i = 1; i <= M; i++) {
             x[IX(i, j, 0)] = signal * x[IX(i, j, 1)];
@@ -183,7 +183,7 @@ void diffuse(int M, int N, int O, int b, float *x, float *x0, float diff, float 
 void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v, float *w, float dt) {
     float dtX = dt * M, dtY = dt * N, dtZ = dt * O;
 
-    #pragma omp parallel for 
+    #pragma omp parallel for
     for (int k = 1; k <= O; k++) {
         for (int j = 1; j <= N; j++) {
             for (int i = 1; i <= M; i++) {
@@ -235,7 +235,7 @@ void project(int M, int N, int O, float *u, float *v, float *w, float *p,
 
   float max = -0.5f / MAX3(M,N,O);
 
-  #pragma omp parallel for  
+  #pragma omp parallel for 
   for (int k = 1; k <= O; k++) {
     for (int j = 1; j <= N; j++) {
       for (int i = 1; i <= M; i++) {
@@ -250,7 +250,7 @@ void project(int M, int N, int O, float *u, float *v, float *w, float *p,
   set_bnd(M, N, O, 0, p);
   lin_solve(M, N, O, 0, p, div, 1, 6);
   
-  #pragma omp parallel for  
+  #pragma omp parallel for
   for (int k = 1; k <= O; k++) {
     for (int j = 1; j <= N; j++) {
       for (int i = 1; i <= M; i++) {

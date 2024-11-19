@@ -51,27 +51,35 @@ def average_real_times(folder_path):
     averaged_times = [sum(times) / len(times) for times in all_times if times]
     return averaged_times
 
-def plot_real_times(times):
+def plot_efficiency(times):
     """
-    Plot real times with ticks for each integer value on both axes.
+    Plot efficiency with ticks for each integer value on both axes.
     Args:
         times (list): List of times in seconds.
     """
-    x_values = list(range(1, len(times) + 1))  # Adjust x-values to start at 1
+    if not times or times[0] == 0:
+        raise ValueError("The baseline time (first entry) cannot be zero or empty.")
+
+    baseline = times[0]  # Use the first time as the baseline
+    speedups = [baseline / t for t in times]  # Compute speedup
+    processors = list(range(1, len(speedups) + 1))  # Number of processors (threads)
+
+    # Compute efficiency
+    efficiencies = [speedup / p for speedup, p in zip(speedups, processors)]
 
     plt.figure(figsize=(12, 8))
 
-    # Plot times
-    plt.scatter(x_values, times, color='blue', label='Time-per-thread')
+    # Plot efficiency
+    plt.scatter(processors, efficiencies, color='blue', label='Efficiency')
 
     # Set ticks for each integer value
-    plt.xticks(range(1, len(times) + 1), fontsize=10)
-    plt.yticks(range(int(min(times)), int(max(times)) + 1), fontsize=10)
+    plt.xticks(processors, fontsize=10)
+    plt.yticks(fontsize=10)
 
     # Graph details
-    plt.title("Real Times - Number of Threads", fontsize=16)
+    plt.title("Efficiency - Number of Threads", fontsize=16)
     plt.xlabel("Threads", fontsize=14)
-    plt.ylabel("Time (seconds)", fontsize=14)
+    plt.ylabel("Efficiency", fontsize=14)
     plt.legend(fontsize=12)
     plt.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
 
@@ -79,11 +87,11 @@ def plot_real_times(times):
     plt.show()
 
 # Example usage
-folder_path = "./out"  # Path to the folder containing files
+folder_path = "./out/"  # Path to the folder containing files
 
 # Parse and average real times from all files in the folder
 averaged_times = average_real_times(folder_path)
 print("Averaged Real Times:", averaged_times)
 
-# Plot the averaged times
-plot_real_times(averaged_times)
+# Plot the efficiency based on the averaged times
+plot_efficiency(averaged_times)

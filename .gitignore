@@ -6,3 +6,4 @@ prof_md
 gmon.*
 search.sh
 .venv/
+fluid_sim_seq
