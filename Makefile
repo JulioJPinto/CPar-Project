@@ -15,7 +15,7 @@ runpar:
 
 clean:
 	@echo Cleaning up...
-	@rm -f fluid_sim gmon.out
+	@rm -f fluid_sim gmon.out fluid_sim_seq
 	@echo Done.
 
 # Compiling for performance testing.
