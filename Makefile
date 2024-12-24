@@ -1,11 +1,13 @@
-CPP = g++ -Wall
+CPP = nvcc 
 SRCS = src/*.cpp
-CFLAGS = -Ofast -march=native -ftree-vectorize  
-OPENMP = -fopenmp
+CFLAGS = --std=c++17 -O3 
 
 all:
-	$(CPP) $(CFLAGS) $(OPENMP) $(SRCS) -o fluid_sim 
+	$(CPP) $(CFLAGS) $(SRCS) -o fluid_sim 
 	$(CPP) $(CFLAGS) $(SRCS)  -o fluid_sim_seq
+
+run:
+	./fluid_sim
 
 runseq:
 	./fluid_sim_seq

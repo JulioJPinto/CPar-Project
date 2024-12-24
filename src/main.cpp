@@ -25,24 +25,20 @@ static float *dens, *dens_prev;
 // Function to allocate simulation data
 int allocate_data() {
   int size = (M + 2) * (N + 2) * (O + 2);
-  int alignment = 64;
-  
-  u = ALIGNED_ARRAY_FLOAT(size, alignment);
-  v = ALIGNED_ARRAY_FLOAT(size, alignment);
-  w = ALIGNED_ARRAY_FLOAT(size, alignment);
-  u_prev = ALIGNED_ARRAY_FLOAT(size, alignment);
-  v_prev = ALIGNED_ARRAY_FLOAT(size, alignment);
-  w_prev = ALIGNED_ARRAY_FLOAT(size, alignment);
-  dens = ALIGNED_ARRAY_FLOAT(size, alignment);
-  dens_prev = ALIGNED_ARRAY_FLOAT(size, alignment);
-
+  u = new float[size];
+  v = new float[size];
+  w = new float[size];
+  u_prev = new float[size];
+  v_prev = new float[size];
+  w_prev = new float[size];
+  dens = new float[size];
+  dens_prev = new float[size];
   if (!u || !v || !w || !u_prev || !v_prev || !w_prev || !dens || !dens_prev) {
     std::cerr << "Cannot allocate memory" << std::endl;
     return 0;
   }
   return 1;
 }
-
 // Function to clear the data (set all to zero)
 void clear_data() {
   int size = (M + 2) * (N + 2) * (O + 2);
@@ -51,18 +47,16 @@ void clear_data() {
         dens_prev[i] = 0.0f;
   }
 }
-
 // Free allocated memory
 void free_data() {
-  std::free(u);
-  std::free(v);
-  std::free(w);
-  std::free(u_prev);
-  std::free(v_prev);
-  std::free(w_prev);
-  std::free(dens);
-  std::free(dens_prev);
-
+  delete[] u;
+  delete[] v;
+  delete[] w;
+  delete[] u_prev;
+  delete[] v_prev;
+  delete[] w_prev;
+  delete[] dens;
+  delete[] dens_prev;
 }
 
 // Apply events (source or force) for the current timestep

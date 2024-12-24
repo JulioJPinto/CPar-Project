@@ -17,7 +17,8 @@ rsync -avz -e "sshpass -p '$password' ssh" ./ "$username"@s7edu.di.uminho.pt:~/$
 sshpass -p "$password" ssh "$username"@s7edu.di.uminho.pt << EOF
 cd ~/$destination_folder/
 make clean
-module load gcc/11.2.0
+module load gcc/7.2.0
+module load cuda/11.3.1
 make
 sbatch --partition day --constraint=c24 --ntasks=1 --cpus-per-task=48 run.sh
 EOF
