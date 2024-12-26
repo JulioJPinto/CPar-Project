@@ -278,40 +278,61 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
  * @param p Pressure field.
  * @param div Divergence field.
  */
-void project(int M, int N, int O, float *u, float *v, float *w, float *p,
-             float *div) {
-
-  float max = -0.5f / MAX3(M,N,O);
-
-  #pragma omp parallel for 
-  for (int k = 1; k <= O; k++) {
-    for (int j = 1; j <= N; j++) {
-      for (int i = 1; i <= M; i++) {
-        div[IX(i, j, k)] = (u[IX(i + 1, j, k)] - u[IX(i - 1, j, k)] + v[IX(i, j + 1, k)] -
-             v[IX(i, j - 1, k)] + w[IX(i, j, k + 1)] - w[IX(i, j, k - 1)]) * max;
-        p[IX(i, j, k)] = 0;
-      }
-    }
-  }
-
-  set_bnd(M, N, O, 0, div);
-  set_bnd(M, N, O, 0, p);
-  lin_solve(M, N, O, 0, p, div, 1, 6);
-  
-  #pragma omp parallel for
-  for (int k = 1; k <= O; k++) {
-    for (int j = 1; j <= N; j++) {
-      for (int i = 1; i <= M; i++) {
-        u[IX(i, j, k)] -= 0.5f * (p[IX(i + 1, j, k)] - p[IX(i - 1, j, k)]);
-        v[IX(i, j, k)] -= 0.5f * (p[IX(i, j + 1, k)] - p[IX(i, j - 1, k)]);
-        w[IX(i, j, k)] -= 0.5f * (p[IX(i, j, k + 1)] - p[IX(i, j, k - 1)]);
-      }
-    }
-  }
-  set_bnd(M, N, O, 1, u);
-  set_bnd(M, N, O, 2, v);
-  set_bnd(M, N, O, 3, w);
-}
+ __global__
+ void compute_div_and_reset_p(int M, int N, int O, float *u, float *v, float *w, float *p, float *div, float max) {
+     int i = blockIdx.x * blockDim.x + threadIdx.x + 1;
+     int j = blockIdx.y * blockDim.y + threadIdx.y + 1;
+     int k = blockIdx.z * blockDim.z + threadIdx.z + 1;
+ 
+     if (i <= M && j <= N && k <= O) {
+         div[IX(i, j, k)] = (u[IX(i + 1, j, k)] - u[IX(i - 1, j, k)] +
+                             v[IX(i, j + 1, k)] - v[IX(i, j - 1, k)] +
+                             w[IX(i, j, k + 1)] - w[IX(i, j, k - 1)]) * max;
+         p[IX(i, j, k)] = 0.0f;
+     }
+ }
+ 
+ __global__
+ void update_velocity(int M, int N, int O, float *u, float *v, float *w, float *p) {
+     int i = blockIdx.x * blockDim.x + threadIdx.x + 1;
+     int j = blockIdx.y * blockDim.y + threadIdx.y + 1;
+     int k = blockIdx.z * blockDim.z + threadIdx.z + 1;
+ 
+     if (i <= M && j <= N && k <= O) {
+         u[IX(i, j, k)] -= 0.5f * (p[IX(i + 1, j, k)] - p[IX(i - 1, j, k)]);
+         v[IX(i, j, k)] -= 0.5f * (p[IX(i, j + 1, k)] - p[IX(i, j - 1, k)]);
+         w[IX(i, j, k)] -= 0.5f * (p[IX(i, j, k + 1)] - p[IX(i, j, k - 1)]);
+     }
+ }
+ 
+ void project(int M, int N, int O, float *u, float *v, float *w, float *p, float *div) {
+     float max = -0.5f / MAX3(M, N, O);
+ 
+     dim3 block_size(8, 8, 8);
+     dim3 grid_size((M + block_size.x - 1) / block_size.x, 
+                    (N + block_size.y - 1) / block_size.y, 
+                    (O + block_size.z - 1) / block_size.z);
+ 
+     // Compute divergence and reset pressure
+     compute_div_and_reset_p<<<grid_size, block_size>>>(M, N, O, u, v, w, p, div, max);
+     cudaDeviceSynchronize();
+ 
+     // Apply boundary conditions
+     set_bnd(M, N, O, 0, div);
+     set_bnd(M, N, O, 0, p);
+ 
+     // Solve linear system
+     lin_solve(M, N, O, 0, p, div, 1, 6);
+ 
+     // Update velocities
+     update_velocity<<<grid_size, block_size>>>(M, N, O, u, v, w, p);
+     cudaDeviceSynchronize();
+ 
+     // Apply boundary conditions for velocities
+     set_bnd(M, N, O, 1, u);
+     set_bnd(M, N, O, 2, v);
+     set_bnd(M, N, O, 3, w);
+ }
 
 /***/
 void dens_step(int M, int N, int O, float *x, float *x0, float *u, float *v,
@@ -357,6 +378,7 @@ void dens_step(int M, int N, int O, float *x, float *x0, float *u, float *v,
 void vel_step(int M, int N, int O, float *u, float *v, float *w, float *u0,
               float *v0, float *w0, float visc, float dt) {
   
+  std::cout << "vel_step" << std::endl;
 
   float *d_u, *d_v, *d_w, *d_u0, *d_v0, *d_w0;
   cudaMalloc(&d_u, M * N * O * sizeof(float));
@@ -373,6 +395,8 @@ void vel_step(int M, int N, int O, float *u, float *v, float *w, float *u0,
   cudaMemcpy(d_u0, u0, M * N * O * sizeof(float), cudaMemcpyHostToDevice);
   cudaMemcpy(d_v0, v0, M * N * O * sizeof(float), cudaMemcpyHostToDevice);
   cudaMemcpy(d_w0, w0, M * N * O * sizeof(float), cudaMemcpyHostToDevice);
+
+  std::cout << "add_source" << std::endl;
   
   dim3 block_size(8, 8, 8);
   dim3 grid_size((M + block_size.x - 1) / block_size.x, (N + block_size.y - 1) / block_size.y, (O + block_size.z - 1) / block_size.z);
@@ -381,15 +405,18 @@ void vel_step(int M, int N, int O, float *u, float *v, float *w, float *u0,
   add_source(M, N, O, d_u, d_u0, dt);
   add_source(M, N, O, d_v, d_v0, dt);
   add_source(M, N, O, d_w, d_w0, dt);
-
+  
+  std::cout << "diffuse" << std::endl;
   //SWAP(u0, u);
   diffuse(M, N, O, 1, d_u0, d_u, visc, dt);
   //SWAP(v0, v);d_d_
   diffuse(M, N, O, 2, d_v0, d_v, visc, dt);
   //SWAP(w0, w);d_d_
   diffuse(M, N, O, 3, d_w0, d_w, visc, dt);
+  std::cout << "project" << std::endl;
   project(M, N, O, d_u0, d_v0, d_w0, d_u, d_v);
 
+  std::cout << "advect" << std::endl;
   //SWAP(u0, u);
   //SWAP(v0, v);
   //SWAP(w0, w);
@@ -397,7 +424,8 @@ void vel_step(int M, int N, int O, float *u, float *v, float *w, float *u0,
   advect(M, N, O, 2, d_v, d_v0, d_u0, d_v0, d_w0, dt);
   advect(M, N, O, 3, d_w, d_w0, d_u0, d_v0, d_w0, dt);
   project(M, N, O, d_u, d_v, d_w, d_u0, d_v0);
-
+  
+  std::cout << "Copy results back to host" << std::endl;
   // Copy results back to host
   cudaMemcpy(u, d_u, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
   cudaMemcpy(v, d_v, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
@@ -406,6 +434,7 @@ void vel_step(int M, int N, int O, float *u, float *v, float *w, float *u0,
   cudaMemcpy(v0, d_v0, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
   cudaMemcpy(w0, d_w0, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
 
+  std::cout << "Free GPU memory" << std::endl;
   // Free GPU memory
   cudaFree(d_u);
   cudaFree(d_v);
