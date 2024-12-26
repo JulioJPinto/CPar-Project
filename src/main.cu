@@ -1,6 +1,7 @@
 #include "EventManager.h"
 #include "fluid_solver.h"
 
+#include <cuda_runtime.h>
 #include <iostream>
 #include <vector>
 

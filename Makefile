@@ -1,25 +1,38 @@
-CPP = nvcc 
-SRCS = src/*.cpp
-CFLAGS = --std=c++17 -O3 
+CPP = g++ -Wall
+SRCS = src/fluid_solver.cpp src/EventManager.cpp src/main.cpp
+CFLAGS = -Ofast -march=native -ftree-vectorize  
+OPENMP = -fopenmp
+
+NPP = nvcc
+NSRCS = src/*.cu src/EventManager.cpp
+NCFLAGS = -O3 -arch=sm_35
 
 all:
-	$(CPP) $(CFLAGS) $(SRCS) -o fluid_sim 
+	$(CPP) $(CFLAGS) $(OPENMP) $(SRCS) -o fluid_sim_par
 	$(CPP) $(CFLAGS) $(SRCS)  -o fluid_sim_seq
 
-run:
-	./fluid_sim
+cuda:
+	$(NPP) $(NCFLAGS) $(NSRCS) -o fluid_sim
 
 runseq:
 	./fluid_sim_seq
 
 runpar:
-	OMP_NUM_THREADS=20 ./fluid_sim
+	OMP_NUM_THREADS=20 ./fluid_sim_par
+
+runcuda:
+	./fluid_sim
 
 clean:
 	@echo Cleaning up...
-	@rm -f fluid_sim gmon.out fluid_sim_seq
+	@rm -f fluid_sim gmon.out
 	@echo Done.
 
+
+
+
+
+# Profiling
 # Compiling for performance testing.
 
 PROF_FLAGS = -pg
