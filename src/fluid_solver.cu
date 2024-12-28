@@ -337,109 +337,36 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
 /***/
 void dens_step(int M, int N, int O, float *x, float *x0, float *u, float *v,
                float *w, float diff, float dt) {
-
-  float *d_x, *d_x0, *d_u, *d_v, *d_w;
-  cudaMalloc(&d_x, M * N * O * sizeof(float));
-  cudaMalloc(&d_x0, M * N * O * sizeof(float));
-  cudaMalloc(&d_u, M * N * O * sizeof(float));
-  cudaMalloc(&d_v, M * N * O * sizeof(float));
-  cudaMalloc(&d_w, M * N * O * sizeof(float));
-
-  // Copy data to device
-  cudaMemcpy(d_x, x, M * N * O * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_x0, x0, M * N * O * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_u, u, M * N * O * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_v, v, M * N * O * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_w, w, M * N * O * sizeof(float), cudaMemcpyHostToDevice);
                   
-  add_source(M, N, O, d_x, d_x0, dt);
+  add_source(M, N, O, x, x0, dt);
   //SWAP(x0, x);
-  diffuse(M, N, O, 0, d_x0, d_x, diff, dt);
+  diffuse(M, N, O, 0, x0, x, diff, dt);
   //SWAP(x0, x);
-  advect(M, N, O, 0, d_x, d_x0, d_u, d_v, d_w, dt);
-
-  // Copy results back to host
-  cudaMemcpy(x, d_x, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(x0, d_x0, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(u, d_u, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(v, d_v, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(w, d_w, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
-
-  // Free GPU memory
-  cudaFree(d_x);
-  cudaFree(d_x0);
-  cudaFree(d_u);
-  cudaFree(d_v);
-  cudaFree(d_w);
-
+  advect(M, N, O, 0, x, x0, u, v, w, dt);
 }
 
 // Step function for velocity
 void vel_step(int M, int N, int O, float *u, float *v, float *w, float *u0,
               float *v0, float *w0, float visc, float dt) {
-  
-  std::cout << "vel_step" << std::endl;
-
-  float *d_u, *d_v, *d_w, *d_u0, *d_v0, *d_w0;
-  cudaMalloc(&d_u, M * N * O * sizeof(float));
-  cudaMalloc(&d_v, M * N * O * sizeof(float));
-  cudaMalloc(&d_w, M * N * O * sizeof(float));
-  cudaMalloc(&d_u0, M * N * O * sizeof(float));
-  cudaMalloc(&d_v0, M * N * O * sizeof(float));
-  cudaMalloc(&d_w0, M * N * O * sizeof(float));
-
-  // Copy data to device
-  cudaMemcpy(d_u, u, M * N * O * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_v, v, M * N * O * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_w, w, M * N * O * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_u0, u0, M * N * O * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_v0, v0, M * N * O * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_w0, w0, M * N * O * sizeof(float), cudaMemcpyHostToDevice);
-
-  std::cout << "add_source" << std::endl;
-  
-  dim3 block_size(8, 8, 8);
-  dim3 grid_size((M + block_size.x - 1) / block_size.x, (N + block_size.y - 1) / block_size.y, (O + block_size.z - 1) / block_size.z);
 
   // Add the source term
-  add_source(M, N, O, d_u, d_u0, dt);
-  add_source(M, N, O, d_v, d_v0, dt);
-  add_source(M, N, O, d_w, d_w0, dt);
+  add_source(M, N, O, u, u0, dt);
+  add_source(M, N, O, v, v0, dt);
+  add_source(M, N, O, w, w0, dt);
   
-  std::cout << "diffuse" << std::endl;
   //SWAP(u0, u);
-  diffuse(M, N, O, 1, d_u0, d_u, visc, dt);
-  //SWAP(v0, v);d_d_
-  diffuse(M, N, O, 2, d_v0, d_v, visc, dt);
-  //SWAP(w0, w);d_d_
-  diffuse(M, N, O, 3, d_w0, d_w, visc, dt);
-  std::cout << "project" << std::endl;
-  project(M, N, O, d_u0, d_v0, d_w0, d_u, d_v);
+  diffuse(M, N, O, 1, u0, u, visc, dt);
+  //SWAP(v0, v
+  diffuse(M, N, O, 2, v0, v, visc, dt);
+  //SWAP(w0, w
+  diffuse(M, N, O, 3, w0, w, visc, dt);
+  project(M, N, O, u0, v0, w0, u, v);
 
-  std::cout << "advect" << std::endl;
   //SWAP(u0, u);
   //SWAP(v0, v);
   //SWAP(w0, w);
-  advect(M, N, O, 1, d_u, d_u0, d_u0, d_v0, d_w0, dt);
-  advect(M, N, O, 2, d_v, d_v0, d_u0, d_v0, d_w0, dt);
-  advect(M, N, O, 3, d_w, d_w0, d_u0, d_v0, d_w0, dt);
-  project(M, N, O, d_u, d_v, d_w, d_u0, d_v0);
-  
-  std::cout << "Copy results back to host" << std::endl;
-  // Copy results back to host
-  cudaMemcpy(u, d_u, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(v, d_v, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(w, d_w, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(u0, d_u0, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(v0, d_v0, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(w0, d_w0, M * N * O * sizeof(float), cudaMemcpyDeviceToHost);
-
-  std::cout << "Free GPU memory" << std::endl;
-  // Free GPU memory
-  cudaFree(d_u);
-  cudaFree(d_v);
-  cudaFree(d_w);
-  cudaFree(d_u0);
-  cudaFree(d_v0);
-  cudaFree(d_w0);
+  advect(M, N, O, 1, u, u0, u0, v0, w0, dt);
+  advect(M, N, O, 2, v, v0, u0, v0, w0, dt);
+  advect(M, N, O, 3, w, w0, u0, v0, w0, dt);
+  project(M, N, O, u, v, w, u0, v0);
 }

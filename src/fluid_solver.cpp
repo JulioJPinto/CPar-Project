@@ -140,7 +140,7 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
         // Synchronize boundary conditions
         set_bnd(M, N, O, b, x);
 
-    } while (++l < LINEARSOLVERTIMES);
+    } while (max_c > tol && ++l < LINEARSOLVERTIMES);
 }
 
 

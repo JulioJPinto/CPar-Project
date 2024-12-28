@@ -5,3 +5,7 @@
 #SBATCH --constraint=k20
 
 time ./fluid_sim
+
+time ./fluid_sim
+
+time ./fluid_sim
