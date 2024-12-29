@@ -100,21 +100,45 @@ void free_data() {
   cudaFree(d_dens_prev);
 }
 
-// Apply events (source or force) for the current timestep
-void apply_events(const std::vector<Event>& events) {
-    int i = M / 2, j = N / 2, k = O / 2;
-    int index = IX(i, j, k); 
+// Kernel to apply density source
+__global__ void apply_density_kernel(float *d, int index, float density) {
+  d[index] = density;
+}
 
-    for (const auto& event : events) {
-        if (event.type == ADD_SOURCE) {
-            dens[index] = event.density;
-        } else if (event.type == APPLY_FORCE) {
-            u[index] = event.force.x;
-            v[index] = event.force.y;
-            w[index] = event.force.z;
-        }
-        std::cout << "Event at timestep " << event.type << " applied " << std::endl;
-    }
+// Kernel to apply forces
+__global__ void apply_forces_kernel(float *x, float *y, float *z, int index, float fx, float fy, float fz) {
+  x[index] = fx;
+  y[index] = fy;
+  z[index] = fz;
+}
+
+// Apply events (source or force) for the current timestep
+void apply_events(const std::vector<Event> &events) {
+  bool dens = false; 
+  bool force = false;
+  int index = IX(M / 2, N / 2, O / 2);
+
+  float density = 0.0f, fx = 0.0f, fy = 0.0f, fz = 0.0f;
+
+  for (const auto &event : events) {
+      if (event.type == ADD_SOURCE) {
+          apply_density = true;
+          density = event.density;
+      } else if (event.type == APPLY_FORCE) {
+          apply_force = true;
+          fx = event.force.x;
+          fy = event.force.y;
+          fz = event.force.z;
+      }
+  }
+
+  if (dens) {
+      apply_density_kernel<<<1, 1>>>(d_dens, index, density);
+  }
+
+  if (apply_force) {
+      apply_forces_kernel<<<1, 1>>>(d_u, d_v, d_w, index, fx, fy, fz);
+  }
 }
 
 
@@ -130,6 +154,16 @@ float sum_density() {
 
 // Simulation loop
 void simulate(EventManager &eventManager, int timesteps) {
+  //Copy data to GPU
+  cudaMemcpy(d_u, u, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_v, v, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_w, w, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_u_prev, u_prev, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_v_prev, v_prev, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_w_prev, w_prev, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_dens, dens, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_dens_prev, dens_prev, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
+
   for (int t = 0; t < timesteps; t++) {
     // Get the events for the current timestep
     std::vector<Event> events = eventManager.get_events_at_timestamp(t);
@@ -137,30 +171,13 @@ void simulate(EventManager &eventManager, int timesteps) {
     // Apply events to the simulation
     apply_events(events);
 
-    //Copy data to GPU
-    cudaMemcpy(d_u, u, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_v, v, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_w, w, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_u_prev, u_prev, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_v_prev, v_prev, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_w_prev, w_prev, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_dens, dens, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_dens_prev, dens_prev, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyHostToDevice);
-
     // Perform the simulation steps
     vel_step(M, N, O, d_u, d_v, d_w, d_u_prev, d_v_prev, d_w_prev, visc, dt);
     dens_step(M, N, O, d_dens, d_dens_prev, d_u, d_v, d_w, diff, dt);
-
-    //Copy data back to CPU
-    cudaMemcpy(u, d_u, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(v, d_v, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(w, d_w, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(u_prev, d_u_prev, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(v_prev, d_v_prev, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(w_prev, d_w_prev, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(dens, d_dens, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(dens_prev, d_dens_prev, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyDeviceToHost);
   }
+
+  // Copy data back to CPU
+  cudaMemcpy(dens, d_dens, (M + 2) * (N + 2) * (O + 2) * sizeof(float), cudaMemcpyDeviceToHost);
 }
 
 int main() {

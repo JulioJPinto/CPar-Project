@@ -258,7 +258,6 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
   dim3 gridSize((M + blockSize.x - 1) / blockSize.x, (N + blockSize.y - 1) / blockSize.y, (O + blockSize.z - 1) / blockSize.z);
 
   advect_kernel<<<gridSize, blockSize>>>(M, N, O, b, d, d0, u, v, w, dt);
-  cudaDeviceSynchronize();
 
   set_bnd(M, N, O, b, d);
 }
@@ -315,7 +314,6 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
  
      // Compute divergence and reset pressure
      compute_div_and_reset_p<<<grid_size, block_size>>>(M, N, O, u, v, w, p, div, max);
-     cudaDeviceSynchronize();
  
      // Apply boundary conditions
      set_bnd(M, N, O, 0, div);
@@ -326,7 +324,6 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
  
      // Update velocities
      update_velocity<<<grid_size, block_size>>>(M, N, O, u, v, w, p);
-     cudaDeviceSynchronize();
  
      // Apply boundary conditions for velocities
      set_bnd(M, N, O, 1, u);
@@ -369,4 +366,5 @@ void vel_step(int M, int N, int O, float *u, float *v, float *w, float *u0,
   advect(M, N, O, 2, v, v0, u0, v0, w0, dt);
   advect(M, N, O, 3, w, w0, u0, v0, w0, dt);
   project(M, N, O, u, v, w, u0, v0);
+
 }
