@@ -44,7 +44,6 @@ void add_source(int M, int N, int O, float *x, float *s, float dt) {
   int threadsPerBlock = 256;
   int blocksPerGrid = (size + threadsPerBlock - 1) / threadsPerBlock;
   add_source_kernel<<<blocksPerGrid, threadsPerBlock>>>(size, x, s, dt);
-  cudaDeviceSynchronize();
 }
 
 /**
@@ -63,10 +62,10 @@ void add_source(int M, int N, int O, float *x, float *s, float dt) {
 
 __global__
 void set_bnd_z_kernel(int M, int N, int O, float x_signal, float *x) {
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  int j = blockIdx.y * blockDim.y + threadIdx.y;
+  int i = blockIdx.x * blockDim.x + threadIdx.x + 1;
+  int j = blockIdx.y * blockDim.y + threadIdx.y + 1;
 
-  if (i >= 1 && i <= M && j >= 1 && j <= N) {
+  if (i <= M && j <= N) {
     x[IX(i, j, 0)] = x_signal * x[IX(i, j, 1)];
     x[IX(i, j, O + 1)] = x_signal * x[IX(i, j, O)];
   }
@@ -74,10 +73,10 @@ void set_bnd_z_kernel(int M, int N, int O, float x_signal, float *x) {
 
 __global__
 void set_bnd_y_kernel(int M, int N, int O, float x_signal, float *x) {
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  int k = blockIdx.y * blockDim.y + threadIdx.y;
+  int i = blockIdx.x * blockDim.x + threadIdx.x + 1;
+  int k = blockIdx.y * blockDim.y + threadIdx.y + 1;
 
-  if (i >= 1 && i <= M && k >= 1 && k <= O) {
+  if (i <= M && k <= O) {
     x[IX(i, 0, k)] = x_signal * x[IX(i, 1, k)];
     x[IX(i, N + 1, k)] = x_signal * x[IX(i, N, k)];
   }
@@ -85,10 +84,10 @@ void set_bnd_y_kernel(int M, int N, int O, float x_signal, float *x) {
 
 __global__
 void set_bnd_x_kernel(int M, int N, int O, float x_signal, float *x) {
-  int j = blockIdx.x * blockDim.x + threadIdx.x;
-  int k = blockIdx.y * blockDim.y + threadIdx.y;
+  int j = blockIdx.x * blockDim.x + threadIdx.x + 1;
+  int k = blockIdx.y * blockDim.y + threadIdx.y + 1;
 
-  if (j >= 1 && j <= N && k >= 1 && k <= O) {
+  if (j <= N && k <= O) {
     x[IX(0, j, k)] = x_signal * x[IX(1, j, k)];
     x[IX(M + 1, j, k)] = x_signal * x[IX(M, j, k)];
   }
@@ -112,7 +111,6 @@ void set_bnd(int M, int N, int O, int b, float *x) {
   set_bnd_y_kernel<<<grid_size, block_size>>>(M, N, O, signal, x);
   set_bnd_x_kernel<<<grid_size, block_size>>>(M, N, O, signal, x);
   set_bnd_corners_kernel<<<1, 1>>>(M, N, O, x);
-  cudaDeviceSynchronize();
 }
 
 
@@ -130,13 +128,14 @@ void set_bnd(int M, int N, int O, int b, float *x) {
  * @param a Coefficient used in the solver.
  * @param c Constant term in the linear system.
  */
-__global__
-void white_lin_solve_kernel(int M, int N, int O, float *x, float *x0, float a, float c) {
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  int j = blockIdx.y * blockDim.y + threadIdx.y;
-  int k = blockIdx.z * blockDim.z + threadIdx.z;
 
-  if (i >= 1 && i <= M && j >= 1 && j <= N && k >= 1 && k <= O && (i + j + k) % 2 == 1) {
+__global__
+void black_lin_solve_kernel(int M, int N, int O, float *x, float *x0, float a, float c) {
+  int i = blockIdx.x * blockDim.x + threadIdx.x + 1 ;
+  int j = blockIdx.y * blockDim.y + threadIdx.y + 1 ;
+  int k = blockIdx.z * blockDim.z + threadIdx.z + 1 ;
+
+  if (i <= M && j <= N && k <= O && (i + j + k) % 2 == 0) {
     x[IX(i, j, k)] = (x0[IX(i, j, k)] * c +
                       a * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
                            x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
@@ -145,12 +144,12 @@ void white_lin_solve_kernel(int M, int N, int O, float *x, float *x0, float a, f
 }
 
 __global__
-void black_lin_solve_kernel(int M, int N, int O, float *x, float *x0, float a, float c) {
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  int j = blockIdx.y * blockDim.y + threadIdx.y;
-  int k = blockIdx.z * blockDim.z + threadIdx.z;
+void white_lin_solve_kernel(int M, int N, int O, float *x, float *x0, float a, float c) {
+  int i = blockIdx.x * blockDim.x + threadIdx.x + 1;
+  int j = blockIdx.y * blockDim.y + threadIdx.y + 1;
+  int k = blockIdx.z * blockDim.z + threadIdx.z + 1;
 
-  if (i >= 1 && i <= M && j >= 1 && j <= N && k >= 1 && k <= O && (i + j + k) % 2 == 0) {
+  if (i <= M && j <= N && k <= O && (i + j + k) % 2 == 1) {
     x[IX(i, j, k)] = (x0[IX(i, j, k)] * c +
                       a * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
                            x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
@@ -171,11 +170,9 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
     dim3 block_size(8, 8, 8);
     dim3 grid_size((M + block_size.x - 1) / block_size.x, (N + block_size.y - 1) / block_size.y, (O + block_size.z - 1) / block_size.z);
     black_lin_solve_kernel<<<grid_size, block_size>>>(M, N, O, x, x0, a, c);
-    cudaDeviceSynchronize();
 
     // Second half of the sweep (white cells)
     white_lin_solve_kernel<<<grid_size, block_size>>>(M, N, O, x, x0, a, c);
-    cudaDeviceSynchronize();
 
     // Synchronize boundary conditions
     set_bnd(M, N, O, b, x);
@@ -221,11 +218,11 @@ void diffuse(int M, int N, int O, int b, float *x, float *x0, float diff, float 
  * @param dt Time step for the simulation.
  */
 __global__ void advect_kernel(int M, int N, int O, int b, float *d, float *d0, float *u, float *v, float *w, float dt) {
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  int j = blockIdx.y * blockDim.y + threadIdx.y;
-  int k = blockIdx.z * blockDim.z + threadIdx.z;
+  int i = blockIdx.x * blockDim.x + threadIdx.x + 1;
+  int j = blockIdx.y * blockDim.y + threadIdx.y + 1;
+  int k = blockIdx.z * blockDim.z + threadIdx.z + 1;
 
-  if (i >= 1 && i <= M && j >= 1 && j <= N && k >= 1 && k <= O) {
+  if (i <= M && j <= N && k <= O) {
     float dtX = dt * M, dtY = dt * N, dtZ = dt * O;
 
     float x = i - dtX * u[IX(i, j, k)];

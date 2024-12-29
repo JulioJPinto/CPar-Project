@@ -20,12 +20,12 @@ static float diff = 0.0001f; // Diffusion constant
 static float visc = 0.0001f; // Viscosity constant
 
 // Fluid simulation arrays
-static float *u, *v, *w, *u_prev, *v_prev, *w_prev;
-static float *dens, *dens_prev;
+float *u, *v, *w, *u_prev, *v_prev, *w_prev;
+float *dens, *dens_prev;
 
 //Fluid GPU simulation arryas
-static float *d_u, *d_v, *d_w, *d_u_prev, *d_v_prev, *d_w_prev;
-static float *d_dens, *d_dens_prev;
+float *d_u, *d_v, *d_w, *d_u_prev, *d_v_prev, *d_w_prev;
+float *d_dens, *d_dens_prev;
 
 // Function to allocate simulation data
 int allocate_data() {
@@ -67,17 +67,6 @@ void clear_data() {
     u[i] = v[i] = w[i] = u_prev[i] = v_prev[i] = w_prev[i] = dens[i] =
         dens_prev[i] = 0.0f;
   }
-
-  // Copy data to the GPU
-  cudaMemcpy(d_u, 0, size * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_v, 0, size * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_w, 0, size * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_u_prev, 0, size * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_v_prev, 0, size * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_w_prev, 0, size * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_dens, 0, size * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_dens_prev, 0, size * sizeof(float), cudaMemcpyHostToDevice);
-
 }
 // Free allocated memory
 void free_data() {
@@ -121,23 +110,23 @@ void apply_events(const std::vector<Event> &events) {
   float density = 0.0f, fx = 0.0f, fy = 0.0f, fz = 0.0f;
 
   for (const auto &event : events) {
-      if (event.type == ADD_SOURCE) {
-          apply_density = true;
-          density = event.density;
-      } else if (event.type == APPLY_FORCE) {
-          apply_force = true;
-          fx = event.force.x;
-          fy = event.force.y;
-          fz = event.force.z;
-      }
+    if (event.type == ADD_SOURCE) {
+        dens = true;
+        density = event.density;
+    } else if (event.type == APPLY_FORCE) {
+        force = true;
+        fx = event.force.x;
+        fy = event.force.y;
+        fz = event.force.z;
+    }
   }
 
   if (dens) {
       apply_density_kernel<<<1, 1>>>(d_dens, index, density);
   }
 
-  if (apply_force) {
-      apply_forces_kernel<<<1, 1>>>(d_u, d_v, d_w, index, fx, fy, fz);
+  if (force) {
+      apply_forces_kernel<<<1, 1>>>(d_u, d_v, d_w, index, fx, fy, fz);   
   }
 }
 
