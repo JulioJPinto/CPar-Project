@@ -105,11 +105,15 @@ void set_bnd(int M, int N, int O, int b, float *x) {
   float signal = (b == 3 || b == 1 || b == 2) ? -1.0f : 1.0f;
 
   dim3 block_size(8, 8);
-  dim3 grid_size((M + block_size.x - 1) / block_size.x, (N + block_size.y - 1) / block_size.y);
+  dim3 grid_size_z((M + block_size.x - 1) / block_size.x, (N + block_size.y - 1) / block_size.y);
+  set_bnd_z_kernel<<<grid_size_z, block_size>>>(M, N, O, signal, x);
 
-  set_bnd_z_kernel<<<grid_size, block_size>>>(M, N, O, signal, x);
-  set_bnd_y_kernel<<<grid_size, block_size>>>(M, N, O, signal, x);
-  set_bnd_x_kernel<<<grid_size, block_size>>>(M, N, O, signal, x);
+  dim3 grid_size_y((M + block_size.x - 1) / block_size.x, (O + block_size.y - 1) / block_size.y);
+  set_bnd_y_kernel<<<grid_size_y, block_size>>>(M, N, O, signal, x);
+
+  dim3 grid_size_x((N + block_size.x - 1) / block_size.x, (O + block_size.y - 1) / block_size.y);
+  set_bnd_x_kernel<<<grid_size_x, block_size>>>(M, N, O, signal, x);
+
   set_bnd_corners_kernel<<<1, 1>>>(M, N, O, x);
 }
 
@@ -128,56 +132,106 @@ void set_bnd(int M, int N, int O, int b, float *x) {
  * @param a Coefficient used in the solver.
  * @param c Constant term in the linear system.
  */
+ 
+ __global__ void lin_solve_black(int M, int N, int O, float *x, const float *x0, float invA, float invC, float *d_max_c) {
+  extern __shared__ float sdata[];
+  unsigned int tid = threadIdx.x;
+  unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-__global__
-void black_lin_solve_kernel(int M, int N, int O, float *x, float *x0, float a, float c) {
-  int i = blockIdx.x * blockDim.x + threadIdx.x + 1 ;
-  int j = blockIdx.y * blockDim.y + threadIdx.y + 1 ;
-  int k = blockIdx.z * blockDim.z + threadIdx.z + 1 ;
+  int i = idx % M + 1;
+  int j = (idx / M) % N + 1;
+  int k = idx / (M * N) + 1;
 
-  if (i <= M && j <= N && k <= O && (i + j + k) % 2 == 0) {
-    x[IX(i, j, k)] = (x0[IX(i, j, k)] * c +
-                      a * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
-                           x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
-                           x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
+  sdata[tid] = 0.0f;
+
+  if (i <= M && j <= N && k <= O && (k + j) % 2 == 0) {
+      int index = IX(i, j, k);
+      float old_x = x[index];
+      x[index] = (x0[index] * invC +
+                  invA * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
+                          x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
+                          x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
+      float change = fabs(x[index] - old_x);
+      sdata[tid] = change;
+  }
+
+  __syncthreads();
+
+  for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+      if (tid < s) {
+          sdata[tid] = fmaxf(sdata[tid], sdata[tid + s]);
+      }
+      __syncthreads();
+  }
+
+  if (tid == 0) {
+      atomicMax((int*)d_max_c, __float_as_int(sdata[0]));
   }
 }
 
-__global__
-void white_lin_solve_kernel(int M, int N, int O, float *x, float *x0, float a, float c) {
-  int i = blockIdx.x * blockDim.x + threadIdx.x + 1;
-  int j = blockIdx.y * blockDim.y + threadIdx.y + 1;
-  int k = blockIdx.z * blockDim.z + threadIdx.z + 1;
+__global__ void lin_solve_white(int M, int N, int O, float *x, const float *x0, float invA, float invC, float *d_max_c) {
+  extern __shared__ float sdata[];
+  unsigned int tid = threadIdx.x;
+  unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-  if (i <= M && j <= N && k <= O && (i + j + k) % 2 == 1) {
-    x[IX(i, j, k)] = (x0[IX(i, j, k)] * c +
-                      a * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
-                           x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
-                           x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
+  int i = idx % M + 1;
+  int j = (idx / M) % N + 1;
+  int k = idx / (M * N) + 1;
+
+  sdata[tid] = 0.0f;
+
+  if (i <= M && j <= N && k <= O && (k + j) % 2 == 1) {
+      int index = IX(i, j, k);
+      float old_x = x[index];
+      x[index] = (x0[index] * invC +
+                  invA * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
+                          x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
+                          x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
+      float change = fabs(x[index] - old_x);
+      sdata[tid] = change;
+  }
+
+  __syncthreads();
+
+  for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+      if (tid < s) {
+          sdata[tid] = fmaxf(sdata[tid], sdata[tid + s]);
+      }
+      __syncthreads();
+  }
+
+  if (tid == 0) {
+      atomicMax((int*)d_max_c, __float_as_int(sdata[0]));
   }
 }
 
 void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c) {
-  //float tol = 1e-7, max_c, old_x, change;
+  float tol = 1e-7f;
   int l = 0;
 
   float invC = 1.0f / c;
   float invA = a * invC;
 
+  float *d_max_c;
+  cudaMalloc(&d_max_c, sizeof(float));
+
+  dim3 threads(256);
+  dim3 blocks((M * N * O + threads.x - 1) / threads.x);
+
+  float max_c;
   do {
-    //max_c = 0.0f;
-    // First half of the sweep (black cells)
-    dim3 block_size(8, 8, 8);
-    dim3 grid_size((M + block_size.x - 1) / block_size.x, (N + block_size.y - 1) / block_size.y, (O + block_size.z - 1) / block_size.z);
-    black_lin_solve_kernel<<<grid_size, block_size>>>(M, N, O, x, x0, a, c);
+      cudaMemset(d_max_c, 0, sizeof(float));
 
-    // Second half of the sweep (white cells)
-    white_lin_solve_kernel<<<grid_size, block_size>>>(M, N, O, x, x0, a, c);
+      lin_solve_black<<<blocks, threads, threads.x * sizeof(float)>>>(M, N, O, x, x0, invA, invC, d_max_c);
 
-    // Synchronize boundary conditions
-    set_bnd(M, N, O, b, x);
+      lin_solve_white<<<blocks, threads, threads.x * sizeof(float)>>>(M, N, O, x, x0, invA, invC, d_max_c);
 
-  } while (++l < LINEARSOLVERTIMES);
+      cudaMemcpy(&max_c, d_max_c, sizeof(float), cudaMemcpyDeviceToHost);
+
+      set_bnd(M, N, O, b, x);
+  } while (max_c > tol && ++l < LINEARSOLVERTIMES);
+
+  cudaFree(d_max_c);
 }
 
 /**
@@ -350,9 +404,9 @@ void vel_step(int M, int N, int O, float *u, float *v, float *w, float *u0,
   
   //SWAP(u0, u);
   diffuse(M, N, O, 1, u0, u, visc, dt);
-  //SWAP(v0, v
+  //SWAP(v0, v);
   diffuse(M, N, O, 2, v0, v, visc, dt);
-  //SWAP(w0, w
+  //SWAP(w0, w);
   diffuse(M, N, O, 3, w0, w, visc, dt);
   project(M, N, O, u0, v0, w0, u, v);
 
