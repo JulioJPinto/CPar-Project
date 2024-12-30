@@ -1,5 +1,5 @@
 #include "fluid_solver.h"
-#include <omp.h>
+#include <stdbool.h>
 #include <cmath>
 #include <iostream>
 #include <algorithm> // For std::max
@@ -131,51 +131,92 @@ void set_bnd(int M, int N, int O, int b, float *x) {
  * @param c Constant term in the linear system.
  */
 
-__global__ void lin_solve_black(int M, int N, int O, float a, float invC, float* __restrict__ x, const float* __restrict__ x0) {
-  int k = blockIdx.z + 1;  // z-dimension index
-  int j = blockIdx.y + 1;  // y-dimension index
-  int i = threadIdx.x + 1 + (k + j) % 2; // Black cells: offset based on parity
+#define LIN_SOLVE_TOL 1e-7
+
+__global__ void lin_solve_black(int M, int N, int O, float a, float invC, float* __restrict__ x, const float* __restrict__ x0,bool* __restrict__ done) {
+    int j = (blockIdx.y * blockDim.y + threadIdx.y) + 1;
+    int k = (blockIdx.z * blockDim.z + threadIdx.z) + 1;
+    int i = 2 * (blockIdx.x * blockDim.x + threadIdx.x) + 1 + (j + k) % 2;
+
+  __shared__ bool local_done;
+  if(threadIdx.x==0){
+    local_done = true;
+    }
+  __syncthreads();
 
   if (i <= M && j <= N && k <= O) {
       int idx = IX(i, j, k);
+      float old = x[idx];
       x[idx] = (x0[idx] * invC +
                 a * invC * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
                             x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
                             x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
+      if (fabs(x[idx]-old) >  1e-7){
+        local_done = false;
+      };
+  }  
+  __syncthreads();
+  if (threadIdx.x == 0 && !local_done){
+    *done = false;
   }
 }
 
 // White cell kernel
-__global__ void lin_solve_white(int M, int N, int O, float a, float invC, float* __restrict__ x, const float* __restrict__ x0) {
-  int k = blockIdx.z + 1;  // z-dimension index
-  int j = blockIdx.y + 1;  // y-dimension index
-  int i = threadIdx.x + 1 + (k + j + 1) % 2; // White cells: offset based on parity
+__global__ void lin_solve_white(int M, int N, int O, float a, float invC, float* __restrict__ x, const float* __restrict__ x0,bool* __restrict__ done) {
 
-  if (i <= M && j <= N && k <= O) {
+    int j = (blockIdx.y * blockDim.y + threadIdx.y) + 1;
+    int k = (blockIdx.z * blockDim.z + threadIdx.z) + 1;
+    int i = 2 * (blockIdx.x * blockDim.x + threadIdx.x) + 1 + (j + k + 1  ) % 2;
+
+
+__shared__ bool local_done;
+  if(threadIdx.x==0){
+    local_done = true;
+  }
+  __syncthreads();
+
+    if (i <= M && j <= N && k <= O) {
       int idx = IX(i, j, k);
+      float old = x[idx];
       x[idx] = (x0[idx] * invC +
                 a * invC * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
                             x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
                             x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
+      if (fabs(x[idx]-old) > 1e-7){
+        local_done = false;
+      };
+  }
+  __syncthreads();
+  if (threadIdx.x == 0 && !local_done){
+    *done = false;
   }
 }
 
 void lin_solve(int M, int N, int O, int b, float* x, float* x0, float a, float c) {
   float invC = 1.0f / c;
+  bool *dev_done;
+  cudaMalloc(&dev_done,sizeof(bool));
+  bool done = true;
+  cudaMemcpy(dev_done, &done, sizeof(bool), cudaMemcpyHostToDevice);
+  done = false;
+  
 
+  // Set boundary conditions
   // Tunable thread and block dimensions
-  int threadsPerBlock = 128;  // Optimal thread count per block
-  dim3 blockDim(threadsPerBlock);  // Threads per block in x-dimension
-  dim3 gridDim((M + threadsPerBlock - 1) / threadsPerBlock, N, O); // Blocks per grid
-
-  for (int iter = 0; iter < LINEARSOLVERTIMES; ++iter) {
+    dim3 blockDim(8, 8, 8);  // Threads per block
+    dim3 gridDim((M + blockDim.x - 1) / blockDim.x,  // Blocks along X
+                 (N + blockDim.y - 1) / blockDim.y,  // Blocks along Y
+                 (O + blockDim.z - 1) / blockDim.z); // Blocks along Z
+  for (int iter = 0; iter < LINEARSOLVERTIMES && !done; ++iter) {
+      printf("Iteration %d: Launching kernel\n", iter);
       // Launch black cell kernel
-      lin_solve_black<<<gridDim, blockDim>>>(M, N, O, a, invC, x, x0);
-      cudaDeviceSynchronize();
-
+      lin_solve_black<<<gridDim, blockDim>>>(M, N, O, a, invC, x, x0,dev_done);
+      // cudaDeviceSynchronize();
       // Launch white cell kernel
-      lin_solve_white<<<gridDim, blockDim>>>(M, N, O, a, invC, x, x0);
-      cudaDeviceSynchronize();
+      lin_solve_white<<<gridDim, blockDim>>>(M, N, O, a, invC, x, x0,dev_done);
+      // cudaDeviceSynchronize();
+
+      cudaMemcpy(&done, dev_done, sizeof(bool), cudaMemcpyDeviceToHost);
 
       // Synchronize boundary conditions
       set_bnd(M, N, O, b, x);
