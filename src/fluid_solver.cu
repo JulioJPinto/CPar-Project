@@ -210,6 +210,9 @@ void lin_solve(int M, int N, int O, int b, float* x, float* x0, float a, float c
   for (int iter = 0; iter < LINEARSOLVERTIMES && !done; ++iter) {
       printf("Iteration %d: Launching kernel\n", iter);
       // Launch black cell kernel
+      done = true;
+      cudaMemcpy(dev_done, &done, sizeof(bool), cudaMemcpyHostToDevice);
+
       lin_solve_black<<<gridDim, blockDim>>>(M, N, O, a, invC, x, x0,dev_done);
       // cudaDeviceSynchronize();
       // Launch white cell kernel
