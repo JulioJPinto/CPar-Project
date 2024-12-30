@@ -62,8 +62,8 @@ void add_source(int M, int N, int O, float *x, float *s, float dt) {
 // Set boundary conditions
 __global__
 void set_bnd_x_kernel(int M, int N, int O, float signal, float *x) {
-  int j = blockIdx.x * blockDim.x + threadIdx.x;
-  int k = blockIdx.y * blockDim.y + threadIdx.y;
+  int j = blockIdx.x * blockDim.x + threadIdx.x + 1;
+  int k = blockIdx.y * blockDim.y + threadIdx.y + 1;
   if (j < N && k < O) {
     x[IX(0, j, k)] = signal * x[IX(1, j, k)];
     x[IX(M + 1, j, k)] = signal * x[IX(M, j, k)];
@@ -72,8 +72,8 @@ void set_bnd_x_kernel(int M, int N, int O, float signal, float *x) {
 
 __global__
 void set_bnd_y_kernel(int M, int N, int O, float signal, float *x) {
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  int k = blockIdx.y * blockDim.y + threadIdx.y;
+  int i = blockIdx.x * blockDim.x + threadIdx.x + 1;
+  int k = blockIdx.y * blockDim.y + threadIdx.y + 1;
   if (i < M && k < O) {
     x[IX(i, 0, k)] = signal * x[IX(i, 1, k)];
     x[IX(i, N + 1, k)] = signal * x[IX(i, N, k)];
@@ -82,8 +82,8 @@ void set_bnd_y_kernel(int M, int N, int O, float signal, float *x) {
 
 __global__
 void set_bnd_z_kernel(int M, int N, int O, float signal, float *x) {
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  int j = blockIdx.y * blockDim.y + threadIdx.y;
+  int i = blockIdx.x * blockDim.x + threadIdx.x + 1;
+  int j = blockIdx.y * blockDim.y + threadIdx.y + 1;
   if (i < M && j < N) {
     x[IX(i, j, 0)] = signal * x[IX(i, j, 1)];
     x[IX(i, j, O + 1)] = signal * x[IX(i, j, O)];
@@ -131,107 +131,58 @@ void set_bnd(int M, int N, int O, int b, float *x) {
  * @param c Constant term in the linear system.
  */
 
-// red-black solver with convergence check
-__global__ void lin_solve_black(int M, int N, int O, float *x, const float *x0, float invA, float invC, float *d_max_c) {
-  extern __shared__ float sdata[];
-  unsigned int tid = threadIdx.x;
-  unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void lin_solve_black(int M, int N, int O, float a, float invC, float* __restrict__ x, const float* __restrict__ x0) {
+  int k = blockIdx.z + 1;  // z-dimension index
+  int j = blockIdx.y + 1;  // y-dimension index
+  int i = threadIdx.x + 1 + (k + j) % 2; // Black cells: offset based on parity
 
-  int i = idx % M + 1;
-  int j = (idx / M) % N + 1;
-  int k = idx / (M * N) + 1;
-
-  sdata[tid] = 0.0f;
-
-  if (i <= M && j <= N && k <= O && (k + j) % 2 == 0) {
-      int index = IX(i, j, k);
-      float old_x = x[index];
-      x[index] = (x0[index] * invC +
-                  invA * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
-                          x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
-                          x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
-      float change = fabs(x[index] - old_x);
-      sdata[tid] = change;
-  }
-
-  __syncthreads();
-
-  for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
-      if (tid < s) {
-          sdata[tid] = fmaxf(sdata[tid], sdata[tid + s]);
-      }
-      __syncthreads();
-  }
-
-  if (tid == 0) {
-      atomicMax((int*)d_max_c, __float_as_int(sdata[0]));
+  if (i <= M && j <= N && k <= O) {
+      int idx = IX(i, j, k);
+      x[idx] = (x0[idx] * invC +
+                a * invC * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
+                            x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
+                            x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
   }
 }
 
-__global__ void lin_solve_white(int M, int N, int O, float *x, const float *x0, float invA, float invC, float *d_max_c) {
-  extern __shared__ float sdata[];
-  unsigned int tid = threadIdx.x;
-  unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+// White cell kernel
+__global__ void lin_solve_white(int M, int N, int O, float a, float invC, float* __restrict__ x, const float* __restrict__ x0) {
+  int k = blockIdx.z + 1;  // z-dimension index
+  int j = blockIdx.y + 1;  // y-dimension index
+  int i = threadIdx.x + 1 + (k + j + 1) % 2; // White cells: offset based on parity
 
-  int i = idx % M + 1;
-  int j = (idx / M) % N + 1;
-  int k = idx / (M * N) + 1;
-
-  sdata[tid] = 0.0f;
-
-  if (i <= M && j <= N && k <= O && (k + j) % 2 == 1) {
-      int index = IX(i, j, k);
-      float old_x = x[index];
-      x[index] = (x0[index] * invC +
-                  invA * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
-                          x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
-                          x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
-      float change = fabs(x[index] - old_x);
-      sdata[tid] = change;
-  }
-
-  __syncthreads();
-
-  for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
-      if (tid < s) {
-          sdata[tid] = fmaxf(sdata[tid], sdata[tid + s]);
-      }
-      __syncthreads();
-  }
-
-  if (tid == 0) {
-      atomicMax((int*)d_max_c, __float_as_int(sdata[0]));
+  if (i <= M && j <= N && k <= O) {
+      int idx = IX(i, j, k);
+      x[idx] = (x0[idx] * invC +
+                a * invC * (x[IX(i - 1, j, k)] + x[IX(i + 1, j, k)] +
+                            x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
+                            x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
   }
 }
 
-void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c) {
-  float tol = 1e-7f;
-  int l = 0;
-
+void lin_solve(int M, int N, int O, int b, float* x, float* x0, float a, float c) {
   float invC = 1.0f / c;
-  float invA = a * invC;
 
-  float *d_max_c;
-  cudaMalloc(&d_max_c, sizeof(float));
+  // Tunable thread and block dimensions
+  int threadsPerBlock = 128;  // Optimal thread count per block
+  dim3 blockDim(threadsPerBlock);  // Threads per block in x-dimension
+  dim3 gridDim((M + threadsPerBlock - 1) / threadsPerBlock, N, O); // Blocks per grid
 
-  dim3 threads(256);
-  dim3 blocks((M * N * O + threads.x - 1) / threads.x);
+  for (int iter = 0; iter < LINEARSOLVERTIMES; ++iter) {
+      // Launch black cell kernel
+      lin_solve_black<<<gridDim, blockDim>>>(M, N, O, a, invC, x, x0);
+      cudaDeviceSynchronize();
 
-  float max_c;
-  do {
-      cudaMemset(d_max_c, 0, sizeof(float));
+      // Launch white cell kernel
+      lin_solve_white<<<gridDim, blockDim>>>(M, N, O, a, invC, x, x0);
+      cudaDeviceSynchronize();
 
-      lin_solve_black<<<blocks, threads, threads.x * sizeof(float)>>>(M, N, O, x, x0, invA, invC, d_max_c);
-
-      lin_solve_white<<<blocks, threads, threads.x * sizeof(float)>>>(M, N, O, x, x0, invA, invC, d_max_c);
-
-      cudaMemcpy(&max_c, d_max_c, sizeof(float), cudaMemcpyDeviceToHost);
-
+      // Synchronize boundary conditions
       set_bnd(M, N, O, b, x);
-  } while (max_c > tol && ++l < LINEARSOLVERTIMES);
-
-  cudaFree(d_max_c);
+  }
 }
+
+
 
 
 /**
