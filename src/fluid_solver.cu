@@ -64,7 +64,7 @@ __global__
 void set_bnd_x_kernel(int M, int N, int O, float signal, float *x) {
   int j = blockIdx.x * blockDim.x + threadIdx.x + 1;
   int k = blockIdx.y * blockDim.y + threadIdx.y + 1;
-  if (j < N && k < O) {
+  if (j <= N && k <= O) {
     x[IX(0, j, k)] = signal * x[IX(1, j, k)];
     x[IX(M + 1, j, k)] = signal * x[IX(M, j, k)];
   }
@@ -74,7 +74,7 @@ __global__
 void set_bnd_y_kernel(int M, int N, int O, float signal, float *x) {
   int i = blockIdx.x * blockDim.x + threadIdx.x + 1;
   int k = blockIdx.y * blockDim.y + threadIdx.y + 1;
-  if (i < M && k < O) {
+  if (i <= M && k <= O) {
     x[IX(i, 0, k)] = signal * x[IX(i, 1, k)];
     x[IX(i, N + 1, k)] = signal * x[IX(i, N, k)];
   }
@@ -84,7 +84,7 @@ __global__
 void set_bnd_z_kernel(int M, int N, int O, float signal, float *x) {
   int i = blockIdx.x * blockDim.x + threadIdx.x + 1;
   int j = blockIdx.y * blockDim.y + threadIdx.y + 1;
-  if (i < M && j < N) {
+  if (i <= M && j <= N) {
     x[IX(i, j, 0)] = signal * x[IX(i, j, 1)];
     x[IX(i, j, O + 1)] = signal * x[IX(i, j, O)];
   }
@@ -104,12 +104,15 @@ void set_bnd(int M, int N, int O, int b, float *x) {
   dim3 block_size(BLOCK_SIZE, BLOCK_SIZE);
   dim3 grid_size_z((M + block_size.x - 1) / block_size.x, (N + block_size.y - 1) / block_size.y);
   set_bnd_z_kernel<<<grid_size_z, block_size>>>(M, N, O, signal, x);
+  
 
   dim3 grid_size_y((M + block_size.x - 1) / block_size.x, (O + block_size.y - 1) / block_size.y);
   set_bnd_y_kernel<<<grid_size_y, block_size>>>(M, N, O, signal, x);
+  
 
   dim3 grid_size_x((N + block_size.x - 1) / block_size.x, (O + block_size.y - 1) / block_size.y);
   set_bnd_x_kernel<<<grid_size_x, block_size>>>(M, N, O, signal, x);
+  
 
   set_bnd_corners_kernel<<<1, 1>>>(M, N, O, x);
 
@@ -208,16 +211,15 @@ void lin_solve(int M, int N, int O, int b, float* x, float* x0, float a, float c
                  (N + blockDim.y - 1) / blockDim.y,  // Blocks along Y
                  (O + blockDim.z - 1) / blockDim.z); // Blocks along Z
   for (int iter = 0; iter < LINEARSOLVERTIMES && !done; ++iter) {
-      printf("Iteration %d: Launching kernel\n", iter);
       // Launch black cell kernel
       done = true;
       cudaMemcpy(dev_done, &done, sizeof(bool), cudaMemcpyHostToDevice);
 
       lin_solve_black<<<gridDim, blockDim>>>(M, N, O, a, invC, x, x0,dev_done);
-      // cudaDeviceSynchronize();
+      
       // Launch white cell kernel
       lin_solve_white<<<gridDim, blockDim>>>(M, N, O, a, invC, x, x0,dev_done);
-      // cudaDeviceSynchronize();
+      
 
       cudaMemcpy(&done, dev_done, sizeof(bool), cudaMemcpyDeviceToHost);
 
@@ -306,6 +308,7 @@ void advect(int M, int N, int O, int b, float *d, float *d0, float *u, float *v,
     dim3 grid_size((M + block_size.x - 1) / block_size.x, (N + block_size.y - 1) / block_size.y, (O + block_size.z - 1) / block_size.z);
 
     advect_kernel<<<grid_size, block_size>>>(M, N, O, dtX, dtY, dtZ, d, d0, u, v, w);
+    
     set_bnd(M, N, O, b, d);
 }
 
@@ -360,12 +363,14 @@ void project(int M, int N, int O, float *u, float *v, float *w, float *p,
   dim3 grid_size((M + block_size.x - 1) / block_size.x, (N + block_size.y - 1) / block_size.y, (O + block_size.z - 1) / block_size.z);
 
   div_kernel<<<grid_size, block_size>>>(M, N, O, u, v, w, div, max);
+  
 
   set_bnd(M, N, O, 0, div);
   set_bnd(M, N, O, 0, p);
   lin_solve(M, N, O, 0, p, div, 1, 6);
   
   update_velocity_kernel<<<grid_size, block_size>>>(M, N, O, u, v, w, p);
+  
 
   set_bnd(M, N, O, 1, u);
   set_bnd(M, N, O, 2, v);

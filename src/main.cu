@@ -4,7 +4,7 @@
 #include <iostream>
 #include <vector>
 
-#define SIZE 168
+#define SIZE 84
 
 #define IX(i, j, k) ((i) + (M + 2) * ((j) + (N + 2) * (k)))
 
