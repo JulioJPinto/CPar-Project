@@ -62,15 +62,15 @@ void clear_data() {
         dens_prev[i] = 0.0f;
   }
 
-  // Copy data to GPU
-  cudaMemcpy(d_u, u, size * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_v, v, size * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_w, w, size * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_u_prev, u_prev, size * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_v_prev, v_prev, size * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_w_prev, w_prev, size * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_dens, dens, size * sizeof(float), cudaMemcpyHostToDevice); 
-  cudaMemcpy(d_dens_prev, dens_prev, size * sizeof(float), cudaMemcpyHostToDevice);
+  // Memeset data to GPU
+  cudaMemset(d_u, 0, size * sizeof(float));
+  cudaMemset(d_v, 0, size * sizeof(float));
+  cudaMemset(d_w, 0, size * sizeof(float));
+  cudaMemset(d_u_prev, 0, size * sizeof(float));
+  cudaMemset(d_v_prev, 0, size * sizeof(float));
+  cudaMemset(d_w_prev, 0, size * sizeof(float));
+  cudaMemset(d_dens, 0, size * sizeof(float));
+  cudaMemset(d_dens_prev, 0, size * sizeof(float));
 
 }
 // Free allocated memory

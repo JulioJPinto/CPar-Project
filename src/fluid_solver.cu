@@ -109,12 +109,6 @@ void lin_solve_black(int M, int N, int O, float a, float invC,
   int k = (blockIdx.z * blockDim.z + threadIdx.z) + 1;
   int i = 2 * (blockIdx.x * blockDim.x + threadIdx.x) + 1 + ((j + k) % 2);
 
-  __shared__ bool local_done;
-  if (threadIdx.x == 0) {
-    local_done = true;
-  }
-  __syncthreads();
-
   if (i <= M && j <= N && k <= O) {
     int idx   = IX(i, j, k);
     float old = x[idx];
@@ -123,13 +117,8 @@ void lin_solve_black(int M, int N, int O, float a, float invC,
                              x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
                              x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
     if (fabsf(x[idx] - old) > LIN_SOLVE_TOL) {
-      local_done = false;
+      *done = false;
     }
-  }
-  __syncthreads();
-
-  if (threadIdx.x == 0 && !local_done) {
-    *done = false;
   }
 }
 
@@ -142,12 +131,6 @@ void lin_solve_white(int M, int N, int O, float a, float invC,
   int k = (blockIdx.z * blockDim.z + threadIdx.z) + 1;
   int i = 2 * (blockIdx.x * blockDim.x + threadIdx.x) + 1 + ((j + k + 1) % 2);
 
-  __shared__ bool local_done;
-  if (threadIdx.x == 0) {
-    local_done = true;
-  }
-  __syncthreads();
-
   if (i <= M && j <= N && k <= O) {
     int idx   = IX(i, j, k);
     float old = x[idx];
@@ -156,13 +139,8 @@ void lin_solve_white(int M, int N, int O, float a, float invC,
                              x[IX(i, j - 1, k)] + x[IX(i, j + 1, k)] +
                              x[IX(i, j, k - 1)] + x[IX(i, j, k + 1)]));
     if (fabsf(x[idx] - old) > LIN_SOLVE_TOL) {
-      local_done = false;
+      *done = false;
     }
-  }
-  __syncthreads();
-
-  if (threadIdx.x == 0 && !local_done) {
-    *done = false;
   }
 }
 
@@ -176,7 +154,7 @@ void lin_solve(int M, int N, int O, int b,
   cudaMalloc(&dev_done, sizeof(bool));
 
   // Gauss-Seidel iterations with Red-Black approach
-  dim3 blockDim(8, 8, 8);
+  dim3 blockDim(16, 4, 4);
   dim3 gridDim((M/2 + blockDim.x - 1) / blockDim.x,
                (N + blockDim.y - 1) / blockDim.y,
                (O + blockDim.z - 1) / blockDim.z);
