@@ -2,7 +2,7 @@
 #include <stdbool.h>
 #include <cmath>
 #include <iostream>
-#include <algorithm> // For std::max
+#include <algorithm> 
 
 #define IX(i, j, k) ((i) + (M + 2) * ((j) + (N + 2) * (k)))
 
@@ -78,23 +78,19 @@ void set_bnd_corners_kernel(int M, int N, int O, float *x) {
 void set_bnd(int M, int N, int O, int b, float *x) {
   float signal = (b == 3 || b == 1 || b == 2) ? -1.0f : 1.0f;
 
-  // Z-bounds
   dim3 block_size(BLOCK_SIZE, BLOCK_SIZE);
   dim3 grid_size_z((M + block_size.x - 1) / block_size.x,
                    (N + block_size.y - 1) / block_size.y);
   set_bnd_z_kernel<<<grid_size_z, block_size>>>(M, N, O, signal, x);
 
-  // Y-bounds
   dim3 grid_size_y((M + block_size.x - 1) / block_size.x,
                    (O + block_size.y - 1) / block_size.y);
   set_bnd_y_kernel<<<grid_size_y, block_size>>>(M, N, O, signal, x);
 
-  // X-bounds
   dim3 grid_size_x((N + block_size.x - 1) / block_size.x,
                    (O + block_size.y - 1) / block_size.y);
   set_bnd_x_kernel<<<grid_size_x, block_size>>>(M, N, O, signal, x);
 
-  // Corners
   set_bnd_corners_kernel<<<1, 1>>>(M, N, O, x);
 }
 
@@ -153,7 +149,6 @@ void lin_solve(int M, int N, int O, int b,
   bool *dev_done;
   cudaMalloc(&dev_done, sizeof(bool));
 
-  // Gauss-Seidel iterations with Red-Black approach
   dim3 blockDim(16, 4, 4);
   dim3 gridDim((M/2 + blockDim.x - 1) / blockDim.x,
                (N + blockDim.y - 1) / blockDim.y,
@@ -161,11 +156,10 @@ void lin_solve(int M, int N, int O, int b,
 
   for (int iter = 0; iter < LINEARSOLVERTIMES && !done; ++iter) {
     done = true; 
-    cudaMemcpy(dev_done, &done, sizeof(bool), cudaMemcpyHostToDevice);
+    cudaMemset(dev_done, 1, sizeof(bool));
 
-    // Black cells
     lin_solve_black<<<gridDim, blockDim>>>(M, N, O, a, invC, x, x0, dev_done);
-    // White cells
+    
     lin_solve_white<<<gridDim, blockDim>>>(M, N, O, a, invC, x, x0, dev_done);
 
     cudaMemcpy(&done, dev_done, sizeof(bool), cudaMemcpyDeviceToHost);
@@ -201,8 +195,7 @@ void advect_kernel(int M, int N, int O,
     float x = i - dtX * u[IX(i, j, k)];
     float y = j - dtY * v[IX(i, j, k)];
     float z = k - dtZ * w[IX(i, j, k)];
-
-    // Clamp to grid boundaries
+ 
     x = fmaxf(0.5f, fminf(M + 0.5f, x));
     y = fmaxf(0.5f, fminf(N + 0.5f, y));
     z = fmaxf(0.5f, fminf(O + 0.5f, z));
@@ -247,9 +240,6 @@ void advect(int M, int N, int O, int b,
   set_bnd(M, N, O, b, d);
 }
 
-/****************************************************************************/
-/*                           PROJECT                                        */
-/****************************************************************************/
 __global__
 void div_kernel(int M, int N, int O,
                 float *u, float *v, float *w,
@@ -295,20 +285,15 @@ void project(int M, int N, int O,
                    (N + block_size.y - 1) / block_size.y,
                    (O + block_size.z - 1) / block_size.z);
 
-    // Compute divergence
     div_kernel<<<grid_size, block_size>>>(M, N, O, u, v, w, div, scale);
 
-    // Initialize p = 0
-    // (We can do a separate kernel or just reuse the linear solver’s x0 array.)
     cudaMemset(p, 0, sizeof(float) * (M + 2) * (N + 2) * (O + 2));
 
     set_bnd(M, N, O, 0, div);
     set_bnd(M, N, O, 0, p);
 
-    // Solve for pressure
     lin_solve(M, N, O, 0, p, div, 1.0f, 6.0f);
-
-    // Subtract pressure gradient
+ 
     update_velocity_kernel<<<grid_size, block_size>>>(M, N, O, u, v, w, p);
   }
 
@@ -317,42 +302,32 @@ void project(int M, int N, int O,
   set_bnd(M, N, O, 3, w);
 }
 
-/****************************************************************************/
-/*                           DENSITY STEP                                   */
-/****************************************************************************/
-// NOTE: This now mirrors the CPU code’s logic with SWAPs in the correct places.
+
 void dens_step(int M, int N, int O,
                float *x, float *x0,
                float *u, float *v, float *w,
                float diff, float dt)
 {
-  // Add source
+
   add_source(M, N, O, x, x0, dt);
 
-  // SWAP and diffuse
   SWAP(x0, x);
   diffuse(M, N, O, 0, x, x0, diff, dt);
 
-  // SWAP and advect
   SWAP(x0, x);
   advect(M, N, O, 0, x, x0, u, v, w, dt);
 }
 
-/****************************************************************************/
-/*                           VELOCITY STEP                                  */
-/****************************************************************************/
-// Again, mirrored to match the CPU code’s calls and SWAP order.
 void vel_step(int M, int N, int O,
               float *u, float *v, float *w,
               float *u0, float *v0, float *w0,
               float visc, float dt)
 {
-  // 1) Add sources
+  
   add_source(M, N, O, u,  u0, dt);
   add_source(M, N, O, v,  v0, dt);
   add_source(M, N, O, w,  w0, dt);
 
-  // 2) SWAP & diffuse each velocity component
   SWAP(u0, u);
   diffuse(M, N, O, 1, u, u0, visc, dt);
 
@@ -362,10 +337,8 @@ void vel_step(int M, int N, int O,
   SWAP(w0, w);
   diffuse(M, N, O, 3, w, w0, visc, dt);
 
-  // 3) Project
   project(M, N, O, u, v, w, u0, v0);
-
-  // 4) SWAP & advect each velocity component
+  
   SWAP(u0, u);
   SWAP(v0, v);
   SWAP(w0, w);
@@ -374,6 +347,5 @@ void vel_step(int M, int N, int O,
   advect(M, N, O, 2, v, v0, u0, v0, w0, dt);
   advect(M, N, O, 3, w, w0, u0, v0, w0, dt);
 
-  // 5) Project again
   project(M, N, O, u, v, w, u0, v0);
 }

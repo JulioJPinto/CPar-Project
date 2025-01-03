@@ -5,7 +5,7 @@ OPENMP = -fopenmp
 
 NPP = nvcc
 NSRCS = src/*.cu src/EventManager.cpp
-NCFLAGS = -O3 -arch=sm_35
+NCFLAGS = -O3 -arch=sm_35 -std=c++11
 
 cpu:
 	$(CPP) $(CFLAGS) $(OPENMP) $(SRCS) -o fluid_sim_par
