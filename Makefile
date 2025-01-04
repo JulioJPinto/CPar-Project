@@ -1,5 +1,6 @@
 CPP = g++ -Wall
-SRCS = src/fluid_solver.cpp src/EventManager.cpp src/main.cpp
+SRC_SEQ = src/fluid_solver_linear.cpp src/EventManager.cpp src/main_linear.cpp
+SRC_PAR = src/fluid_solver_omp.cpp src/EventManager.cpp src/main_omp.cpp
 CFLAGS = -Ofast -march=native -ftree-vectorize  
 OPENMP = -fopenmp
 
@@ -7,9 +8,11 @@ NPP = nvcc
 NSRCS = src/*.cu src/EventManager.cpp
 NCFLAGS = -O3 -arch=sm_35 -std=c++11
 
+all: cpu cuda
+
 cpu:
-	$(CPP) $(CFLAGS) $(OPENMP) $(SRCS) -o fluid_sim_par
-	$(CPP) $(CFLAGS) $(SRCS)  -o fluid_sim_seq
+	$(CPP) $(CFLAGS) $(OPENMP) $(SRC_PAR) -o fluid_sim_par
+	$(CPP) $(CFLAGS) $(SRC_SEQ)  -o fluid_sim_seq
 
 cuda:
 	$(NPP) $(NCFLAGS) $(NSRCS) -o fluid_sim
