@@ -20,7 +20,7 @@ Makefile: cuda
 
 run:
 	@echo "Running the program..."
-	@sbatch --partition day --constraint=k20 --ntasks=1 --time=5:00 ./runcuda.sh
+	@sbatch --partition cpar --constraint=k20 --ntasks=1 --time=2:00 ./run.sh
 
 runseq:
 	./fluid_sim_seq
