@@ -8,8 +8,6 @@ NPP = nvcc
 NSRCS = src/*.cu src/EventManager.cpp
 NCFLAGS = -O3 -arch=sm_35 -std=c++11
 
-all: cpu cuda
-
 cpu:
 	$(CPP) $(CFLAGS) $(OPENMP) $(SRC_PAR) -o fluid_sim_par
 	$(CPP) $(CFLAGS) $(SRC_SEQ)  -o fluid_sim_seq
@@ -17,13 +15,20 @@ cpu:
 cuda:
 	$(NPP) $(NCFLAGS) $(NSRCS) -o fluid_sim
 
+Makefile: cuda
+	@echo "CUDA compilation complete."
+
+run:
+	@echo "Running the program..."
+	@sbatch --partition day --constraint=k20 --ntasks=1 --time=5:00 ./runcuda.sh
+
 runseq:
 	./fluid_sim_seq
 
 runpar:
-	OMP_NUM_THREADS=20 ./fluid_sim
+	OMP_NUM_THREADS=20 ./fluid_sim_par
 
-run-cuda:
+runcuda:
 	./fluid_sim
 
 clean:

@@ -17,8 +17,9 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX3(a, b, c) MAX(MAX(a, b), c)
 #define LINEARSOLVERTIMES 20
-#define BLOCK_SIZE 8
 
+__device__ bool* dev_done;
+bool allocated = false;
 
 __global__
 void add_source_kernel(int size, float *x, float *s, float dt) {
@@ -78,7 +79,7 @@ void set_bnd_corners_kernel(int M, int N, int O, float *x) {
 void set_bnd(int M, int N, int O, int b, float *x) {
   float signal = (b == 3 || b == 1 || b == 2) ? -1.0f : 1.0f;
 
-  dim3 block_size(BLOCK_SIZE, BLOCK_SIZE);
+  dim3 block_size(32,8);
   dim3 grid_size_z((M + block_size.x - 1) / block_size.x,
                    (N + block_size.y - 1) / block_size.y);
   set_bnd_z_kernel<<<grid_size_z, block_size>>>(M, N, O, signal, x);
@@ -149,7 +150,7 @@ void lin_solve(int M, int N, int O, int b,
   bool *dev_done;
   cudaMalloc(&dev_done, sizeof(bool));
 
-  dim3 blockDim(16, 4, 4);
+  dim3 blockDim(32, 8, 1);
   dim3 gridDim((M/2 + blockDim.x - 1) / blockDim.x,
                (N + blockDim.y - 1) / blockDim.y,
                (O + blockDim.z - 1) / blockDim.z);
@@ -231,7 +232,7 @@ void advect(int M, int N, int O, int b,
   float dtY = dt * N;
   float dtZ = dt * O;
 
-  dim3 block_size(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+  dim3 block_size(32, 8, 1);
   dim3 grid_size((M + block_size.x - 1) / block_size.x,
                  (N + block_size.y - 1) / block_size.y,
                  (O + block_size.z - 1) / block_size.z);
@@ -279,8 +280,8 @@ void project(int M, int N, int O,
 {
   float scale = -0.5f / (float)(MAX3(M, N, O));
 
-  {
-    dim3 block_size(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+  { 
+    dim3 block_size(32, 8, 1);
     dim3 grid_size((M + block_size.x - 1) / block_size.x,
                    (N + block_size.y - 1) / block_size.y,
                    (O + block_size.z - 1) / block_size.z);
@@ -302,12 +303,22 @@ void project(int M, int N, int O,
   set_bnd(M, N, O, 3, w);
 }
 
+void initialize_solver() {
+  if(allocated) {
+    return;
+  }
+  bool* host_done;
+  cudaMalloc(&host_done, sizeof(bool));
+  cudaMemcpyToSymbol(dev_done, &host_done, sizeof(bool*)); 
+  allocated = true;
+}
 
 void dens_step(int M, int N, int O,
                float *x, float *x0,
                float *u, float *v, float *w,
                float diff, float dt)
 {
+  initialize_solver();
 
   add_source(M, N, O, x, x0, dt);
 
@@ -323,6 +334,7 @@ void vel_step(int M, int N, int O,
               float *u0, float *v0, float *w0,
               float visc, float dt)
 {
+  initialize_solver();
   
   add_source(M, N, O, u,  u0, dt);
   add_source(M, N, O, v,  v0, dt);

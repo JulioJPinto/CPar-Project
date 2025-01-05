@@ -57,7 +57,7 @@ void set_bnd(int M, int N, int O, int b, float *x) {
     float signal = (b == 3 || b == 1 || b == 2) ? -1.0f : 1.0f;
 
     // Set boundary on faces
-    #pragma omp parallel for
+    #pragma omp parallel for private(i)
     for (j = 1; j <= N; j++) {
         for (i = 1; i <= M; i++) {
             x[IX(i, j, 0)] = signal * x[IX(i, j, 1)];

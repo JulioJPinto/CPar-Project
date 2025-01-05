@@ -111,7 +111,7 @@ void lin_solve(int M, int N, int O, int b, float *x, float *x0, float a, float c
 
   // Use a stack-allocated array for precomputing x0[idx] * invC
   // Size of the array (M+2)*(N+2)*(O+2) must fit within the stack limits
-  float precomputed_x0[(M + 2) * (N + 2) * (O + 2)];
+  float *precomputed_x0 = new float[(M + 2) * (N + 2) * (O + 2)];
 
   // Precompute x0[idx] * invC
   for (int k = 0; k <= O + 1; ++k) {
